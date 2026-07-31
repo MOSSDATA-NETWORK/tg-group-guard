@@ -929,6 +929,10 @@ class VerificationStore:
         since: Optional[int] = None,
     ) -> list[dict]:
         await self._ensure_connected()
+        if since is None:
+            # 默认只扫描最近 30 天的事件,避免表涨大后每次后台刷新都全表扫描;
+            # 需要更早的记录时由调用方显式传 since
+            since = int((datetime.now(tz=UTC) - timedelta(days=30)).timestamp())
         scoped_ids = set(chat_ids)
         if chat_id is not None:
             if chat_id not in scoped_ids:
@@ -1024,6 +1028,7 @@ class VerificationStore:
                 "failed": 0,
                 "admin_skip": 0,
                 "admin_ban": 0,
+                "admin_tempban": 0,
                 "ban_actions": 0,
                 "ad_flagged": 0,
                 "ad_total": 0,
@@ -1040,7 +1045,9 @@ class VerificationStore:
                 chat_params + (int(today_start.timestamp()), now_ts),
             )
             for row in await cursor.fetchall():
-                kpi[row["event"]] = int(row["n"])
+                # 仅统计已知事件;未知事件直接忽略,避免 KeyError 打挂仪表盘接口
+                if row["event"] in kpi:
+                    kpi[row["event"]] = int(row["n"])
             await cursor.close()
 
             cursor = await self._db.execute(
@@ -1221,6 +1228,7 @@ class VerificationStore:
                 "failed": kpi["failed"],
                 "admin_skip": kpi["admin_skip"],
                 "admin_ban": kpi["admin_ban"],
+                "admin_tempban": kpi["admin_tempban"],
                 "pass_rate": pass_rate,
                 "bans": kpi["ban_actions"],
                 "ad_flagged": kpi["ad_flagged"],

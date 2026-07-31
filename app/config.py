@@ -64,6 +64,9 @@ class Settings:
     admin_rate_limit_per_min: int
     admin_behind_proxy: bool
     admin_auth_age_seconds: int
+    keyword_reply_enabled: bool
+    keyword_reply_rules_file: Optional[Path]
+    keyword_reply_cooldown_seconds: int
 
 
 def _mask_secret(value: Optional[str]) -> str:
@@ -123,6 +126,13 @@ def describe_effective_config(settings: "Settings") -> dict:
             "ca_file": str(settings.ssl_ca_file) if settings.ssl_ca_file else None,
         },
         "metrics_enabled": settings.enable_metrics,
+        "keyword_reply": {
+            "enabled": settings.keyword_reply_enabled,
+            "rules_file": str(settings.keyword_reply_rules_file)
+            if settings.keyword_reply_rules_file
+            else None,
+            "cooldown_seconds": settings.keyword_reply_cooldown_seconds,
+        },
         "admin_web": {
             "enabled": settings.admin_web_enabled,
             "session_ttl_seconds": settings.admin_session_ttl_seconds,
@@ -239,8 +249,15 @@ def load_settings() -> Settings:
     admin_session_ttl_seconds = max(int(_read_env("ADMIN_SESSION_TTL_SECONDS", "28800")), 300)
     admin_max_sessions_per_user = max(int(_read_env("ADMIN_MAX_SESSIONS_PER_USER", "5")), 1)
     admin_rate_limit_per_min = max(int(_read_env("ADMIN_RATE_LIMIT_PER_MIN", "60")), 5)
-    admin_behind_proxy = _read_bool(_read_env("ADMIN_BEHIND_PROXY", "true"), True)
+    admin_behind_proxy = _read_bool(_read_env("ADMIN_BEHIND_PROXY", "false"), False)
     admin_auth_age_seconds = max(int(_read_env("ADMIN_AUTH_AGE_SECONDS", "300")), 60)
+    keyword_reply_enabled = _read_bool(_read_env("KEYWORD_REPLY_ENABLED", "false"))
+    keyword_reply_rules_file = _resolve_optional_path(
+        _read_env("KEYWORD_REPLY_RULES_FILE", "config/keyword_replies.json")
+    )
+    keyword_reply_cooldown_seconds = max(
+        int(_read_env("KEYWORD_REPLY_COOLDOWN_SECONDS", "60")), 0
+    )
 
     database_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -308,6 +325,9 @@ def load_settings() -> Settings:
         admin_rate_limit_per_min=admin_rate_limit_per_min,
         admin_behind_proxy=admin_behind_proxy,
         admin_auth_age_seconds=admin_auth_age_seconds,
+        keyword_reply_enabled=keyword_reply_enabled,
+        keyword_reply_rules_file=keyword_reply_rules_file,
+        keyword_reply_cooldown_seconds=keyword_reply_cooldown_seconds,
     )
 
 

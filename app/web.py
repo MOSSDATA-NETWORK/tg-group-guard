@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import secrets
 import time
@@ -23,6 +24,11 @@ from .bot_components.verification import (
     delete_prompt_message,
     lift_restrictions,
     notify_verification_success,
+)
+from .keyword_replies import (
+    get_keyword_reply_config,
+    save_keyword_rules,
+    validate_keyword_rules_payload,
 )
 from .config import Settings
 from .storage import VerificationRecord, VerificationStore
@@ -366,6 +372,75 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                 )
         return JSONResponse({"status": "ok"})
 
+    @app.get("/admin/api/keyword_rules")
+    async def admin_api_keyword_rules_get(request: Request) -> JSONResponse:
+        await _require_admin_session(request, api=True)
+        path = settings.keyword_reply_rules_file
+        payload: dict = {}
+        if path is not None and path.exists():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                logger.warning("读取关键词规则文件失败 %s: %s", path, exc)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="规则文件读取失败，请检查服务器日志",
+                ) from exc
+            if isinstance(raw, dict):
+                payload = raw
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            rules = []
+        return JSONResponse(
+            {
+                "enabled": settings.keyword_reply_enabled,
+                "file": str(path) if path is not None else None,
+                "writable": path is not None,
+                "cooldown_seconds": payload.get("cooldown_seconds"),
+                "default_cooldown_seconds": settings.keyword_reply_cooldown_seconds,
+                "rules": rules,
+            }
+        )
+
+    @app.put("/admin/api/keyword_rules")
+    async def admin_api_keyword_rules_put(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        path = settings.keyword_reply_rules_file
+        if path is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="未配置 KEYWORD_REPLY_RULES_FILE，无法保存规则",
+            )
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="非法 JSON")
+
+        normalized, errors = validate_keyword_rules_payload(payload)
+        if errors:
+            return JSONResponse(
+                {"detail": "规则校验失败", "errors": errors},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            save_keyword_rules(path, normalized)
+        except OSError as exc:
+            logger.warning("写入关键词规则文件失败 %s: %s", path, exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="规则文件写入失败，请检查服务器日志",
+            ) from exc
+        # 触发一次读取,让缓存立即热重载,并把生效条数回给前端
+        rules, _ = get_keyword_reply_config()
+        logger.info(
+            "管理员更新关键词规则 operator=%s rules=%s file=%s",
+            session.get("user_id"),
+            len(rules),
+            path,
+        )
+        return JSONResponse({"status": "ok", "count": len(rules)})
+
     @app.get("/healthz", response_model=None)
     async def health_check() -> Dict[str, Any]:
         """依赖状态检查。
@@ -420,10 +495,18 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="metrics 未启用,设置 ENABLE_METRICS=true 后重启",
             )
-        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        from prometheus_client import CONTENT_TYPE_LATEST
 
+        # PrometheusMetrics 使用自定义 CollectorRegistry,
+        # 必须通过其 expose() 导出;全局 generate_latest() 只会拿到空的默认 registry
+        if hasattr(metrics, "expose"):
+            payload = metrics.expose()
+        else:
+            from prometheus_client import generate_latest
+
+            payload = generate_latest()
         return JSONResponse(
-            content=generate_latest().decode("utf-8"),
+            content=payload.decode("utf-8"),
             media_type=CONTENT_TYPE_LATEST,
         )
 
@@ -449,62 +532,61 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
 
         # token 级串行化,防止并发请求重复执行 lift_restrictions / announce
         token_lock = await store.acquire_token_lock(token)
-        async with token_lock:
-            # 二次确认,避免前一个并发请求已处理
-            record2 = await store.get(token)
-            if record2 is None or record2.status != "pending":
-                await store.release_token_lock(token)
-                return JSONResponse({"status": "already_verified"})
-            if record2.expire_at <= datetime.now(tz=UTC):
-                await store.mark_failed(token, datetime.now(tz=UTC))
-                await ban_and_cleanup(
-                    app.state.bot, store, record2, reason="expired_via_web"
-                )
-                await store.release_token_lock(token)
-                return JSONResponse({"status": "expired"})
+        try:
+            async with token_lock:
+                # 二次确认,避免前一个并发请求已处理
+                record2 = await store.get(token)
+                if record2 is None or record2.status != "pending":
+                    return JSONResponse({"status": "already_verified"})
+                if record2.expire_at <= datetime.now(tz=UTC):
+                    await store.mark_failed(token, datetime.now(tz=UTC))
+                    await ban_and_cleanup(
+                        app.state.bot, store, record2, reason="expired_via_web"
+                    )
+                    return JSONResponse({"status": "expired"})
 
-            updated = await store.mark_verified(token, verified_at=now)
-            if not updated:
-                await store.release_token_lock(token)
-                return JSONResponse({"status": "already_verified"})
+                updated = await store.mark_verified(token, verified_at=now)
+                if not updated:
+                    return JSONResponse({"status": "already_verified"})
 
-            record2.status = "verified"
-            record2.verified_at = now
+                record2.status = "verified"
+                record2.verified_at = now
 
-            success = await lift_restrictions(app.state.bot, record2)
-            if not success:
-                await store.release_token_lock(token)
-                return JSONResponse(
-                    {
-                        "status": "bot_error",
-                        "message": "机器人没有足够的权限解除限制，请联系管理员。",
-                    },
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+                success = await lift_restrictions(app.state.bot, record2)
+                if not success:
+                    return JSONResponse(
+                        {
+                            "status": "bot_error",
+                            "message": "机器人没有足够的权限解除限制，请联系管理员。",
+                        },
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
 
-            await delete_prompt_message(app.state.bot, record2)
-            await notify_verification_success(app.state.bot, record2)
-            await announce_group_success(
-                app.state.bot, record2, settings.message_ttl_seconds
-            )
-            try:
-                await store.record_verification_event(
-                    chat_id=record2.chat_id,
-                    user_id=record2.user_id,
-                    username=record2.username,
-                    event="verified",
-                    created_at=now,
+                await delete_prompt_message(app.state.bot, record2)
+                await notify_verification_success(app.state.bot, record2)
+                await announce_group_success(
+                    app.state.bot, record2, settings.message_ttl_seconds
                 )
-            except Exception as exc:  # pragma: no cover - 日志失败不阻断
-                import logging as _log
-                _log.getLogger(__name__).warning(
-                    "记录验证成功事件失败 chat_id=%s user_id=%s error=%r",
-                    record2.chat_id,
-                    record2.user_id,
-                    exc,
-                    exc_info=True,
-                )
-            await store.delete(token)
+                try:
+                    await store.record_verification_event(
+                        chat_id=record2.chat_id,
+                        user_id=record2.user_id,
+                        username=record2.username,
+                        event="verified",
+                        created_at=now,
+                    )
+                except Exception as exc:  # pragma: no cover - 日志失败不阻断
+                    import logging as _log
+                    _log.getLogger(__name__).warning(
+                        "记录验证成功事件失败 chat_id=%s user_id=%s error=%r",
+                        record2.chat_id,
+                        record2.user_id,
+                        exc,
+                        exc_info=True,
+                    )
+                await store.delete(token)
+        finally:
+            # 异常路径也要释放,避免 _token_locks 常驻残留
             await store.release_token_lock(token)
 
         return JSONResponse({"status": "ok"})

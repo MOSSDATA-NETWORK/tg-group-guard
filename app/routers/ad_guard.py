@@ -17,6 +17,7 @@ from aiogram.types import (
 )
 
 from ..ad_guard_rules import render_prompt_message
+from ..keyword_replies import get_keyword_reply_config, try_keyword_reply
 from ..bot_components.ad_guard import (
     check_advertisement,
     heuristic_detect_advertisement,
@@ -225,17 +226,15 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
 
         # 投票结果判定：
         # - 管理员强制封禁：直接维持
-        # - 无人参与（0:0）：不视为放行，按模型原判（flagged=True）保留判定，避免深夜/小群被 0 票漂白
-        # - 广告票严格多于非广告票：维持
-        # - 其他（含平票，但至少有一方投票）：放行
+        # - 无人参与（0:0）：维持模型原判，避免深夜/小群被 0 票漂白
+        # - "不是广告"票必须严格多于"广告"票才放行；
+        #   平票同样维持原判，防止广告号用小号对投自救
         if forced_action:
             final_flagged = True
-        elif adv_votes == 0 and normal_votes == 0:
-            final_flagged = True
-        elif adv_votes > normal_votes:
-            final_flagged = True
-        else:
+        elif normal_votes > adv_votes:
             final_flagged = False
+        else:
+            final_flagged = True
 
         logger.info(
             "广告投票完成 chat_id=%s msg_id=%s adv_votes=%s normal_votes=%s final=%s forced=%s",
@@ -269,6 +268,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         previous_entries,
         current_entry,
         is_user_forward: bool,
+        *,
+        count_valid_speech: bool = True,
     ) -> None:
         chat_id = message.chat.id
         user_id = current_entry.user_id
@@ -383,6 +384,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         vote_adv_count = 0
         vote_normal_count = 0
         force_ban_triggered = False
+        # 快封路径已提前删除消息(封禁失败回退时),后续不再重复删除
+        message_pre_deleted = False
 
         # 高把握度跳过投票：规则命中（confidence=1.0）或 LLM confidence ≥ 0.95 直接封禁
         FAST_BAN_CONFIDENCE = 0.95
@@ -422,6 +425,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             )
             try:
                 await bot.delete_message(chat_id, message.message_id)
+                message_pre_deleted = True
             except TelegramBadRequest as exc:
                 logger.warning(
                     "高把握度广告消息删除失败 chat_id=%s msg_id=%s error=%s",
@@ -454,15 +458,19 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         if not final_flagged:
             if current_entry.text:
                 history_store.get(chat_id).append(current_entry)
-            new_count, qualified = await store.record_ad_valid_speech(
-                chat_id=chat_id,
-                user_id=user_id,
-                threshold=settings.ad_guard_score_skip_threshold,
-                display_name=message.from_user.full_name
-                or message.from_user.username
-                or str(message.from_user.id),
-                username=message.from_user.username,
-            )
+            if count_valid_speech:
+                new_count, qualified = await store.record_ad_valid_speech(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    threshold=settings.ad_guard_score_skip_threshold,
+                    display_name=message.from_user.full_name
+                    or message.from_user.username
+                    or str(message.from_user.id),
+                    username=message.from_user.username,
+                )
+            else:
+                # 编辑消息只检测、不计有效发言,防止反复编辑同一条消息刷免检资格
+                new_count, qualified = valid_count, is_qualified
             await _record_ad_decision_safe(
                 message,
                 text,
@@ -498,6 +506,10 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 chat_id,
                 message.message_id,
             )
+        elif message_pre_deleted:
+            # 快封路径已删除消息(封禁失败回退),跳过重复删除,
+            # 保证决策日志、群内通知与复核按钮照常执行
+            pass
         else:
             await asyncio.sleep(1)
             try:
@@ -647,11 +659,35 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             )
             await ad_review_store.put(review_id, context)
             ttl_seconds = settings.message_ttl_seconds or 0
-            if ttl_seconds > 0:
-                ad_review_store.schedule_expiry(review_id, ttl_seconds + 5)
+            # TTL 未配置时也要兜底过期(默认 1 小时),否则复核 case 会常驻内存
+            expiry_delay = ttl_seconds + 5 if ttl_seconds > 0 else 3600
+            ad_review_store.schedule_expiry(review_id, expiry_delay)
 
     @router.message(F.text | F.caption)
-    async def handle_text_messages(message: Message, bot: Bot) -> None:
+    async def handle_text_messages(message: Message, bot: Bot, *, is_edit: bool = False) -> None:
+        # 关键词自动回复:独立于广告守卫开关;编辑消息不触发,避免重复回复
+        if (
+            not is_edit
+            and settings.keyword_reply_enabled
+            and message.chat.type in {"group", "supergroup"}
+            and message.sender_chat is None
+            and message.from_user is not None
+            and not message.from_user.is_bot
+        ):
+            kw_rules, kw_cooldown = get_keyword_reply_config()
+            if kw_rules:
+                await try_keyword_reply(
+                    bot,
+                    message,
+                    rules=kw_rules,
+                    cooldown_seconds=(
+                        kw_cooldown
+                        if kw_cooldown is not None
+                        else settings.keyword_reply_cooldown_seconds
+                    ),
+                    ttl=settings.message_ttl_seconds,
+                )
+
         if not settings.ad_guard_enabled:
             return
 
@@ -722,13 +758,15 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         current_entry = build_history_entry(message, text, is_user_forward=is_user_forward)
 
         await _evaluate_ad(
-            bot, message, text, previous_entries, current_entry, is_user_forward
+            bot, message, text, previous_entries, current_entry, is_user_forward,
+            count_valid_speech=not is_edit,
         )
 
     @router.edited_message(F.text | F.caption)
     async def handle_edited_text_messages(message: Message, bot: Bot) -> None:
         # 编辑后内容若涉广告，复用同一套检测；防绕过手法：先发垃圾 → 编辑成广告
-        await handle_text_messages(message, bot)
+        # 编辑事件只检测、不计有效发言，防止反复编辑同一条消息刷免检资格
+        await handle_text_messages(message, bot, is_edit=True)
 
     @router.message(~F.text & ~F.caption)
     async def handle_non_text_messages(message: Message, bot: Bot) -> None:
@@ -923,6 +961,21 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     exc,
                     exc_info=True,
                 )
+
+            # 退还自动删除时的扣分:管理员复核认定不是广告,不应保留罚分
+            if case.score_penalty:
+                try:
+                    await score_manager.adjust_score(
+                        case.chat_id, case.offender_id, case.score_penalty
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "恢复消息退还评分失败 chat_id=%s user_id=%s error=%r",
+                        case.chat_id,
+                        case.offender_id,
+                        exc,
+                        exc_info=True,
+                    )
 
             history_store.get(case.chat_id).append(case.history_entry)
 

@@ -74,6 +74,14 @@ def build_admin_commands_router(services: BotServices) -> Router:
                 ttl=settings.message_ttl_seconds,
             )
             return
+        if not await is_authorized_admin(bot, settings, message):
+            await send_message_with_ttl(
+                bot,
+                chat_id=message.chat.id,
+                text="⚠️ 仅管理员可以使用 /id 命令。",
+                ttl=settings.message_ttl_seconds,
+            )
+            return
 
         target_user = None
         if message.reply_to_message and message.reply_to_message.from_user:
@@ -132,6 +140,14 @@ def build_admin_commands_router(services: BotServices) -> Router:
                 bot,
                 chat_id=chat.id,
                 text="⚠️ 请在群聊中使用 /re 命令。",
+                ttl=settings.message_ttl_seconds,
+            )
+            return
+        if not await is_authorized_admin(bot, settings, message):
+            await send_message_with_ttl(
+                bot,
+                chat_id=chat.id,
+                text="⚠️ 仅管理员可以使用 /re 命令。",
                 ttl=settings.message_ttl_seconds,
             )
             return

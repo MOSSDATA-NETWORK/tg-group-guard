@@ -13,6 +13,7 @@ except ModuleNotFoundError as exc:
 
 
 from .ad_guard_rules import configure_ad_guard_rules
+from .keyword_replies import configure_keyword_replies
 from .bot_components.scoring import RedisDailyScoreManager
 from .config import Settings
 from .routers import (
@@ -63,13 +64,14 @@ def create_dispatcher(
     """
     dp = Dispatcher()
     configure_ad_guard_rules(settings.ad_guard_rules_file)
+    configure_keyword_replies(settings.keyword_reply_rules_file)
 
     services = BotServices(
         settings=settings,
         store=store,
         score_manager=score_manager,
         history_store=MessageHistoryStore(),
-        ad_review_store=AdReviewStore(),
+        ad_review_store=AdReviewStore(on_expire=store.delete_ad_deletion),
         ad_vote_store=AdVoteStore(),
     )
 

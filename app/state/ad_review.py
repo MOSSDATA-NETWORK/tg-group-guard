@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from ..bot_components.history import HistoryEntry
 
@@ -29,9 +29,15 @@ class AdReviewContext:
 class AdReviewStore:
     """广告复核 case 存储,封装原先模块级的 _ad_review_cases + 锁 + 过期任务。"""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        on_expire: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> None:
         self._cases: dict[str, AdReviewContext] = {}
         self._lock = asyncio.Lock()
+        # 可选回调:case 过期时清理关联资源(如 SQLite 中的删除快照),
+        # 避免消息 TTL 未配置时 case 常驻内存、快照行常驻数据库
+        self._on_expire = on_expire
 
     async def get(self, review_id: str) -> Optional[AdReviewContext]:
         async with self._lock:
@@ -59,11 +65,22 @@ class AdReviewStore:
             await asyncio.sleep(delay_seconds)
         except asyncio.CancelledError:
             raise
+        expired = False
         async with self._lock:
             case = self._cases.get(review_id)
             if case and not case.resolved:
                 self._cases.pop(review_id, None)
+                expired = True
                 logger.debug("广告复核任务已过期 review_id=%s", review_id)
+        if expired and self._on_expire is not None:
+            try:
+                await self._on_expire(review_id)
+            except Exception as exc:
+                logger.warning(
+                    "清理过期复核关联数据失败 review_id=%s error=%r",
+                    review_id,
+                    exc,
+                )
 
 
 __all__ = ["AdReviewContext", "AdReviewStore"]

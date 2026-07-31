@@ -1,4 +1,4 @@
-# tg-group-guard
+# KKBot
 
 Telegram 群组入群验证 + AI 广告守卫机器人。
 
@@ -14,6 +14,7 @@ Telegram 群组入群验证 + AI 广告守卫机器人。
 |------|------|
 | 入群验证 | 限制新成员 → 私聊/按钮获取链接 → Web 页完成验证 |
 | 广告守卫 | LLM + 规则热重载；支持投票复核、评分跳过 |
+| 关键词回复 | 命中关键词/正则自动回复；规则文件热重载、按群冷却 |
 | 管理指令 | `/warn` `/ban` `/unban` `/sb` `/id` `/re` `/up` 等 |
 | 管理后台 | `/admin`，仅 `ALLOWED_CHAT_IDS` 中群的管理员可登录 |
 
@@ -53,6 +54,27 @@ python -m app.main
 | `ADMIN_WEB_ENABLED` | 是否启用 `/admin` |
 
 完整说明见 [`.env.example`](.env.example)。
+
+## 关键词自动回复
+
+设置 `KEYWORD_REPLY_ENABLED=true` 后，群消息命中 `config/keyword_replies.json` 中的规则时自动回复（独立于广告守卫，即使 `AD_GUARD_ENABLED=false` 也生效）。
+
+规则可直接在 Admin WebUI（`/admin` → 关键词回复）在线编辑，保存后立即生效；也可以手动修改 `config/keyword_replies.json`，支持热重载：
+
+```json
+{
+  "cooldown_seconds": 60,
+  "rules": [
+    { "keywords": ["群规", "规则"], "match": "any", "reply": "📜 群规请查看置顶消息。" },
+    { "keywords": ["新人", "进群"], "match": "all", "reply": "👋 请先完成验证。" },
+    { "pattern": "(?i)(怎么|如何)(加入|验证)", "reply": "🔐 请点击群内验证按钮。" }
+  ]
+}
+```
+
+- `keywords` 为包含匹配，`match: "any"` 任一命中 / `"all"` 全部命中；默认不区分大小写（`case_sensitive: true` 可改）
+- `pattern` 为正则匹配，与 `keywords` 同时配置时 `pattern` 优先
+- 命令（`/` 开头）与编辑消息不触发；同一群同一规则在冷却期内只回复一次
 
 ## Admin WebUI
 

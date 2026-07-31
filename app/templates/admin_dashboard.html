@@ -844,6 +844,36 @@
       .trend { border-top-color: rgba(191, 219, 254, 0.9); }
       .bars span { border-radius: 999px 999px 4px 4px; }
       .modal-msg { background: #f8fbff; border: 1px solid rgba(219, 234, 254, 0.9); }
+
+      /* 关键词回复编辑器 */
+      .kw-banner {
+        margin: 0 0 14px; padding: 10px 14px; border-radius: 12px;
+        background: var(--color-warn-bg, #fffbeb); border: 1px solid #fde68a;
+        color: #92400e; font-size: 13px; line-height: 1.6;
+      }
+      .kw-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 14px; }
+      .kw-toolbar .field { display: flex; flex-direction: column; gap: 6px; }
+      .kw-toolbar input[type="number"] { width: 120px; }
+      .kw-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+      .kw-row {
+        display: grid;
+        grid-template-columns: 92px 1fr 110px auto 44px;
+        gap: 10px; align-items: start;
+        padding: 12px; border: 1px solid rgba(219, 234, 254, 0.95);
+        border-radius: 14px; background: #fbfdff;
+      }
+      .kw-row textarea {
+        grid-column: 1 / -1; min-height: 58px; resize: vertical;
+        font-family: inherit; font-size: 13px; line-height: 1.6;
+      }
+      .kw-row .kw-del { align-self: start; }
+      .kw-row .kw-case { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--color-text-muted); white-space: nowrap; padding-top: 8px; }
+      .kw-errors { margin: 0 0 14px; padding: 10px 14px; border-radius: 12px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: 13px; line-height: 1.7; }
+      .kw-errors ul { margin: 4px 0 0; padding-left: 18px; }
+      @media (max-width: 720px) {
+        .kw-row { grid-template-columns: 1fr; }
+        .kw-row textarea { grid-column: auto; }
+      }
     </style>
   </head>
   <body>
@@ -887,6 +917,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg>
           封禁日志
           <span class="count" id="bans-count">0</span>
+        </div>
+        <div class="nav-item" data-target="keywords" role="button" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          关键词回复
         </div>
         <div class="footnote">
           管理范围：<br />{{ chats | join(', ') }}
@@ -1176,6 +1210,36 @@
               <span class="meta" id="bans-meta">已加载 0 条</span>
               <button type="button" id="bans-more">加载更多</button>
             </div>
+          </div>
+        </section>
+        <section class="panel" id="keywords-panel">
+          <div class="panel-head">
+            <div>
+              <h2>关键词回复</h2>
+              <p>命中关键词或正则时机器人自动回复。保存后立即生效，无需重启。规则为全局配置，对所有授权群生效。</p>
+            </div>
+          </div>
+          <div class="kw-banner" id="kw-disabled-banner" hidden>
+            ⚠️ 关键词回复当前未启用（KEYWORD_REPLY_ENABLED=false），保存的规则不会生效；如需启用请修改 .env 并重启。
+          </div>
+          <div class="kw-banner" id="kw-readonly-banner" hidden>
+            ⚠️ 未配置规则文件路径（KEYWORD_REPLY_RULES_FILE），当前为只读模式，无法保存。
+          </div>
+          <div class="kw-toolbar">
+            <label class="field">
+              <span class="field-label" for="kw-cooldown">冷却秒数（同一群同一规则）</span>
+              <input id="kw-cooldown" type="number" min="0" max="86400" step="1" inputmode="numeric" />
+            </label>
+            <span class="meta" id="kw-cooldown-hint"></span>
+            <span style="flex:1"></span>
+            <button type="button" class="secondary" id="kw-add">＋ 添加规则</button>
+            <button type="button" id="kw-save">保存全部规则</button>
+          </div>
+          <div class="kw-errors" id="kw-errors" hidden></div>
+          <div class="kw-rows" id="kw-rows"></div>
+          <div class="footer">
+            <span class="meta" id="kw-meta">尚未加载</span>
+            <button type="button" id="kw-refresh">重新加载</button>
           </div>
         </section>
       </main>
@@ -1742,7 +1806,148 @@
         document.getElementById('bans-meta').textContent = `已加载 ${reset ? data.items.length : bansOffset} 条`;
       }
 
-      const TAB_BY_INDEX = ['overview', 'joins', 'ads', 'bans'];
+      // ===== 关键词回复编辑器 =====
+      let kwWritable = true;
+
+      function kwRowHtml(rule) {
+        const isPattern = typeof rule.pattern === 'string' && rule.pattern.length > 0;
+        const keywords = Array.isArray(rule.keywords) ? rule.keywords.join('，') : '';
+        return `
+          <div class="kw-row">
+            <select class="kw-type" aria-label="匹配方式">
+              <option value="keywords"${isPattern ? '' : ' selected'}>关键词</option>
+              <option value="pattern"${isPattern ? ' selected' : ''}>正则</option>
+            </select>
+            <input type="text" class="kw-keywords" placeholder="多个关键词用逗号分隔"
+              value="${esc(keywords)}" ${isPattern ? 'hidden' : ''} />
+            <input type="text" class="kw-pattern" placeholder="正则表达式，如 (?i)(怎么|如何)加入"
+              value="${esc(isPattern ? rule.pattern : '')}" ${isPattern ? '' : 'hidden'} />
+            <select class="kw-match" aria-label="命中条件" ${isPattern ? 'hidden' : ''}>
+              <option value="any"${rule.match === 'all' ? '' : ' selected'}>任一命中</option>
+              <option value="all"${rule.match === 'all' ? ' selected' : ''}>全部命中</option>
+            </select>
+            <label class="kw-case" ${isPattern ? 'hidden' : ''}>
+              <input type="checkbox" class="kw-case-cb"${rule.case_sensitive ? ' checked' : ''} /> 区分大小写
+            </label>
+            <button type="button" class="secondary kw-del" title="删除此规则">✕</button>
+            <textarea class="kw-reply" placeholder="回复内容（支持 HTML）">${esc(rule.reply || '')}</textarea>
+          </div>`;
+      }
+
+      function renderKeywordRows(rules) {
+        const box = document.getElementById('kw-rows');
+        box.innerHTML = rules.length
+          ? rules.map(kwRowHtml).join('')
+          : '<div class="empty"><p>暂无规则，点击右上角"添加规则"创建。</p></div>';
+      }
+
+      function kwRuleFromDom(row) {
+        const type = row.querySelector('.kw-type').value;
+        const reply = row.querySelector('.kw-reply').value;
+        if (type === 'pattern') {
+          return { pattern: row.querySelector('.kw-pattern').value, reply };
+        }
+        const keywords = row.querySelector('.kw-keywords').value
+          .split(/[,，\n]/).map((s) => s.trim()).filter(Boolean);
+        const rule = { keywords, reply };
+        if (row.querySelector('.kw-match').value === 'all') rule.match = 'all';
+        if (row.querySelector('.kw-case-cb').checked) rule.case_sensitive = true;
+        return rule;
+      }
+
+      async function loadKeywordRules() {
+        let data;
+        try {
+          const res = await fetch('/admin/api/keyword_rules');
+          if (res.status === 401) { location.href = '/admin/login'; return; }
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || '加载失败');
+          }
+          data = await res.json();
+        } catch (err) {
+          showToast(err.message || '关键词规则加载失败', true);
+          return;
+        }
+        kwWritable = !!data.writable;
+        document.getElementById('kw-disabled-banner').hidden = !!data.enabled;
+        document.getElementById('kw-readonly-banner').hidden = kwWritable;
+        document.getElementById('kw-save').disabled = !kwWritable;
+        const cooldownEl = document.getElementById('kw-cooldown');
+        cooldownEl.value = data.cooldown_seconds == null ? '' : data.cooldown_seconds;
+        cooldownEl.placeholder = String(data.default_cooldown_seconds ?? 60);
+        document.getElementById('kw-cooldown-hint').textContent =
+          `留空使用环境变量默认值 ${data.default_cooldown_seconds ?? 60} 秒；规则文件：${data.file || '未配置'}`;
+        document.getElementById('kw-errors').hidden = true;
+        const rules = Array.isArray(data.rules) ? data.rules : [];
+        renderKeywordRows(rules);
+        document.getElementById('kw-meta').textContent = `已加载 ${rules.length} 条规则`;
+      }
+
+      async function saveKeywordRules() {
+        const rows = Array.from(document.querySelectorAll('#kw-rows .kw-row'));
+        const rules = rows.map(kwRuleFromDom);
+        const cooldownRaw = document.getElementById('kw-cooldown').value.trim();
+        const payload = {
+          rules,
+          cooldown_seconds: cooldownRaw === '' ? null : Number(cooldownRaw),
+        };
+        const btn = document.getElementById('kw-save');
+        const errBox = document.getElementById('kw-errors');
+        btn.disabled = true;
+        try {
+          const res = await fetch('/admin/api/keyword_rules', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': getCookie('kk_admin_csrf'),
+            },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (Array.isArray(data.errors) && data.errors.length) {
+              errBox.innerHTML = `<strong>保存失败：</strong><ul>${data.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`;
+              errBox.hidden = false;
+            } else {
+              errBox.hidden = true;
+            }
+            throw new Error(data.detail || '保存失败');
+          }
+          errBox.hidden = true;
+          document.getElementById('kw-meta').textContent = `已保存 ${data.count} 条规则（立即生效）`;
+          showToast('关键词规则已保存并生效');
+        } catch (err) {
+          showToast(err.message || '保存失败', true);
+        } finally {
+          btn.disabled = !kwWritable;
+        }
+      }
+
+      document.getElementById('kw-add').addEventListener('click', () => {
+        const box = document.getElementById('kw-rows');
+        const empty = box.querySelector('.empty');
+        if (empty) empty.remove();
+        box.insertAdjacentHTML('beforeend', kwRowHtml({ keywords: [], reply: '' }));
+      });
+      document.getElementById('kw-refresh').addEventListener('click', loadKeywordRules);
+      document.getElementById('kw-save').addEventListener('click', saveKeywordRules);
+      document.getElementById('kw-rows').addEventListener('click', (e) => {
+        const del = e.target.closest('.kw-del');
+        if (del) del.closest('.kw-row').remove();
+      });
+      document.getElementById('kw-rows').addEventListener('change', (e) => {
+        const sel = e.target.closest('.kw-type');
+        if (!sel) return;
+        const row = sel.closest('.kw-row');
+        const isPattern = sel.value === 'pattern';
+        row.querySelector('.kw-keywords').hidden = isPattern;
+        row.querySelector('.kw-match').hidden = isPattern;
+        row.querySelector('.kw-case').hidden = isPattern;
+        row.querySelector('.kw-pattern').hidden = !isPattern;
+      });
+
+      const TAB_BY_INDEX = ['overview', 'joins', 'ads', 'bans', 'keywords'];
       function activateTab(name, push = true) {
         const target = document.querySelector(`.nav-item[data-target="${name}"]`);
         if (!target) return;
@@ -1903,7 +2108,7 @@
         if (e.key === 'g') {
           const next = e.key === 'g';
           const handler = (ev) => {
-            const idx = '1234'.indexOf(ev.key);
+            const idx = '12345'.indexOf(ev.key);
             if (idx >= 0) { ev.preventDefault(); activateTab(TAB_BY_INDEX[idx]); }
             document.removeEventListener('keydown', handler, true);
           };
@@ -1929,6 +2134,7 @@
       loadJoins(true);
       loadAds(true);
       loadBans(true);
+      loadKeywordRules();
     </script>
   </body>
 </html>
