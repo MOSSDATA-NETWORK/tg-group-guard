@@ -16,6 +16,7 @@ from aiogram.types import (
     Poll,
 )
 
+from ..keyword_deletions import get_keyword_deletion_rules, try_keyword_deletion
 from ..keyword_replies import get_keyword_reply_config, try_keyword_reply
 from ..bot_components.ad_guard import (
     check_advertisement,
@@ -665,6 +666,45 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
     @router.message(F.text | F.caption)
     async def handle_text_messages(message: Message, bot: Bot, *, is_edit: bool = False) -> None:
         # 关键词自动回复:独立于广告守卫开关;编辑消息不触发,避免重复回复
+        if (
+            not is_edit
+            and settings.keyword_reply_enabled
+            and message.chat.type in {"group", "supergroup"}
+            and message.sender_chat is None
+            and message.from_user is not None
+            and not message.from_user.is_bot
+        ):
+            kw_rules, kw_cooldown = get_keyword_reply_config()
+            if kw_rules:
+                await try_keyword_reply(
+                    bot,
+                    message,
+                    rules=kw_rules,
+                    cooldown_seconds=(
+                        kw_cooldown
+                        if kw_cooldown is not None
+                        else settings.keyword_reply_cooldown_seconds
+                    ),
+                    ttl=settings.message_ttl_seconds,
+                )
+
+        # 关键词自动删除:独立于广告守卫开关;编辑消息不触发
+        if (
+            not is_edit
+            and settings.keyword_deletion_enabled
+            and message.chat.type in {"group", "supergroup"}
+            and message.sender_chat is None
+            and message.from_user is not None
+            and not message.from_user.is_bot
+        ):
+            kd_rules = get_keyword_deletion_rules()
+            if kd_rules:
+                deleted = await try_keyword_deletion(bot, message, rules=kd_rules)
+                if deleted:
+                    return
+
+        if not settings.ad_guard_enabled:
+            return
         if (
             not is_edit
             and settings.keyword_reply_enabled

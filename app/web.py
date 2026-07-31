@@ -25,6 +25,11 @@ from .bot_components.verification import (
     lift_restrictions,
     notify_verification_success,
 )
+from .keyword_deletions import (
+    get_keyword_deletion_rules,
+    save_keyword_deletion_rules,
+    validate_keyword_deletion_payload,
+)
 from .keyword_replies import (
     get_keyword_reply_config,
     save_keyword_rules,
@@ -435,6 +440,73 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
         rules, _ = get_keyword_reply_config()
         logger.info(
             "管理员更新关键词规则 operator=%s rules=%s file=%s",
+            session.get("user_id"),
+            len(rules),
+            path,
+        )
+        return JSONResponse({"status": "ok", "count": len(rules)})
+
+    @app.get("/admin/api/keyword_deletions")
+    async def admin_api_keyword_deletions_get(request: Request) -> JSONResponse:
+        await _require_admin_session(request, api=True)
+        path = settings.keyword_deletion_rules_file
+        payload: dict = {}
+        if path is not None and path.exists():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                logger.warning("读取关键词删除规则文件失败 %s: %s", path, exc)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="规则文件读取失败，请检查服务器日志",
+                ) from exc
+            if isinstance(raw, dict):
+                payload = raw
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            rules = []
+        return JSONResponse(
+            {
+                "enabled": settings.keyword_deletion_enabled,
+                "file": str(path) if path is not None else None,
+                "writable": path is not None,
+                "rules": rules,
+            }
+        )
+
+    @app.put("/admin/api/keyword_deletions")
+    async def admin_api_keyword_deletions_put(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        path = settings.keyword_deletion_rules_file
+        if path is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="未配置 KEYWORD_DELETION_RULES_FILE，无法保存规则",
+            )
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="非法 JSON")
+
+        normalized, errors = validate_keyword_deletion_payload(payload)
+        if errors:
+            return JSONResponse(
+                {"detail": "规则校验失败", "errors": errors},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            save_keyword_deletion_rules(path, normalized)
+        except OSError as exc:
+            logger.warning("写入关键词删除规则文件失败 %s: %s", path, exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="规则文件写入失败，请检查服务器日志",
+            ) from exc
+        # 触发一次读取,让缓存立即热重载,并把生效条数回给前端
+        rules = get_keyword_deletion_rules()
+        logger.info(
+            "管理员更新关键词删除规则 operator=%s rules=%s file=%s",
             session.get("user_id"),
             len(rules),
             path,

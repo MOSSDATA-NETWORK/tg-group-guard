@@ -13,6 +13,8 @@ except ModuleNotFoundError as exc:
 
 
 from .ad_guard_rules import configure_ad_guard_rules
+from .keyword_deletions import configure_keyword_deletions
+from .keyword_replies import configure_keyword_replies
 from .keyword_replies import configure_keyword_replies
 from .bot_components.scoring import RedisDailyScoreManager
 from .config import Settings
@@ -63,6 +65,9 @@ def create_dispatcher(
     pipeline / metrics 可选,用于注入可观测性能力。
     """
     dp = Dispatcher()
+    configure_ad_guard_rules(settings.ad_guard_rules_file)
+    configure_keyword_replies(settings.keyword_reply_rules_file)
+    configure_keyword_deletions(settings.keyword_deletion_rules_file)
     configure_ad_guard_rules(settings.ad_guard_rules_file)
     configure_keyword_replies(settings.keyword_reply_rules_file)
 

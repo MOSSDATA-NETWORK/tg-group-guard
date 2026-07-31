@@ -68,6 +68,8 @@ class Settings:
     keyword_reply_enabled: bool
     keyword_reply_rules_file: Optional[Path]
     keyword_reply_cooldown_seconds: int
+    keyword_deletion_enabled: bool
+    keyword_deletion_rules_file: Optional[Path]
 
 
 def _mask_secret(value: Optional[str]) -> str:
@@ -133,6 +135,12 @@ def describe_effective_config(settings: "Settings") -> dict:
             if settings.keyword_reply_rules_file
             else None,
             "cooldown_seconds": settings.keyword_reply_cooldown_seconds,
+        },
+        "keyword_deletion": {
+            "enabled": settings.keyword_deletion_enabled,
+            "rules_file": str(settings.keyword_deletion_rules_file)
+            if settings.keyword_deletion_rules_file
+            else None,
         },
         "admin_web": {
             "enabled": settings.admin_web_enabled,
@@ -259,6 +267,10 @@ def load_settings() -> Settings:
     keyword_reply_cooldown_seconds = max(
         int(_read_env("KEYWORD_REPLY_COOLDOWN_SECONDS", "60")), 0
     )
+    keyword_deletion_enabled = _read_bool(_read_env("KEYWORD_DELETION_ENABLED", "false"))
+    keyword_deletion_rules_file = _resolve_optional_path(
+        _read_env("KEYWORD_DELETION_RULES_FILE", "config/keyword_deletions.json")
+    )
 
     database_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -329,6 +341,6 @@ def load_settings() -> Settings:
         keyword_reply_enabled=keyword_reply_enabled,
         keyword_reply_rules_file=keyword_reply_rules_file,
         keyword_reply_cooldown_seconds=keyword_reply_cooldown_seconds,
+        keyword_deletion_enabled=keyword_deletion_enabled,
+        keyword_deletion_rules_file=keyword_deletion_rules_file,
     )
-
-

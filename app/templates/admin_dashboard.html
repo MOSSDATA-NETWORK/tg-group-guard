@@ -922,6 +922,12 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           关键词回复
         </div>
+        <div class="nav-item" data-target="keyword-deletions" role="button" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          关键词删除
+        </div>
+        <div class="footnote">
+        </div>
         <div class="footnote">
           管理范围：<br />{{ chats | join(', ') }}
         </div>
@@ -1240,6 +1246,31 @@
           <div class="footer">
             <span class="meta" id="kw-meta">尚未加载</span>
             <button type="button" id="kw-refresh">重新加载</button>
+          </div>
+        </section>
+        <section class="panel" id="keyword-deletions-panel">
+          <div class="panel-head">
+            <div>
+              <h2>关键词删除</h2>
+              <p>命中关键词或正则时机器人自动删除该消息。保存后立即生效，无需重启。规则为全局配置，对所有授权群生效。</p>
+            </div>
+          </div>
+          <div class="kw-banner" id="kd-disabled-banner" hidden>
+            ⚠️ 关键词删除当前未启用（KEYWORD_DELETION_ENABLED=false），保存的规则不会生效；如需启用请修改 .env 并重启。
+          </div>
+          <div class="kw-banner" id="kd-readonly-banner" hidden>
+            ⚠️ 未配置规则文件路径（KEYWORD_DELETION_RULES_FILE），当前为只读模式，无法保存。
+          </div>
+          <div class="kw-toolbar">
+            <span style="flex:1"></span>
+            <button type="button" class="secondary" id="kd-add">＋ 添加规则</button>
+            <button type="button" id="kd-save">保存全部规则</button>
+          </div>
+          <div class="kw-errors" id="kd-errors" hidden></div>
+          <div class="kw-rows" id="kd-rows"></div>
+          <div class="footer">
+            <span class="meta" id="kd-meta">尚未加载</span>
+            <button type="button" id="kd-refresh">重新加载</button>
           </div>
         </section>
       </main>
@@ -1947,7 +1978,7 @@
         row.querySelector('.kw-pattern').hidden = !isPattern;
       });
 
-      const TAB_BY_INDEX = ['overview', 'joins', 'ads', 'bans', 'keywords'];
+      const TAB_BY_INDEX = ['overview', 'joins', 'ads', 'bans', 'keywords', 'keyword-deletions'];
       function activateTab(name, push = true) {
         const target = document.querySelector(`.nav-item[data-target="${name}"]`);
         if (!target) return;
@@ -2135,6 +2166,135 @@
       loadAds(true);
       loadBans(true);
       loadKeywordRules();
+
+      // ===== 关键词删除编辑器 =====
+      let kdWritable = true;
+
+      function kdRowHtml(rule) {
+        const isPattern = typeof rule.pattern === 'string' && rule.pattern.length > 0;
+        const keywords = Array.isArray(rule.keywords) ? rule.keywords.join('，') : '';
+        return `
+          <div class="kw-row">
+            <select class="kd-type" aria-label="匹配方式">
+              <option value="keywords"${isPattern ? '' : ' selected'}>关键词</option>
+              <option value="pattern"${isPattern ? ' selected' : ''}>正则</option>
+            </select>
+            <input type="text" class="kd-keywords" placeholder="多个关键词用逗号分隔"
+              value="${esc(keywords)}" ${isPattern ? 'hidden' : ''} />
+            <input type="text" class="kd-pattern" placeholder="正则表达式，如 (?i)(广告|推广)"
+              value="${esc(isPattern ? rule.pattern : '')}" ${isPattern ? '' : 'hidden'} />
+            <select class="kd-match" aria-label="命中条件" ${isPattern ? 'hidden' : ''}>
+              <option value="any"${rule.match === 'all' ? '' : ' selected'}>任一命中</option>
+              <option value="all"${rule.match === 'all' ? ' selected' : ''}>全部命中</option>
+            </select>
+            <label class="kw-case" ${isPattern ? 'hidden' : ''}>
+              <input type="checkbox" class="kd-case-cb"${rule.case_sensitive ? ' checked' : ''} /> 区分大小写
+            </label>
+            <button type="button" class="secondary kw-del" title="删除此规则">✕</button>
+          </div>`;
+      }
+
+      function renderKdRows(rules) {
+        const box = document.getElementById('kd-rows');
+        box.innerHTML = rules.length
+          ? rules.map(kdRowHtml).join('')
+          : '<div class="empty"><p>暂无规则，点击右上角"添加规则"创建。</p></div>';
+      }
+
+      function kdRuleFromDom(row) {
+        const type = row.querySelector('.kd-type').value;
+        if (type === 'pattern') {
+          return { pattern: row.querySelector('.kd-pattern').value };
+        }
+        const keywords = row.querySelector('.kd-keywords').value
+          .split(/[,，\n]/).map((s) => s.trim()).filter(Boolean);
+        const rule = { keywords };
+        if (row.querySelector('.kd-match').value === 'all') rule.match = 'all';
+        if (row.querySelector('.kd-case-cb').checked) rule.case_sensitive = true;
+        return rule;
+      }
+
+      async function loadKdRules() {
+        let data;
+        try {
+          const res = await fetch('/admin/api/keyword_deletions');
+          if (res.status === 401) { location.href = '/admin/login'; return; }
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || '加载失败');
+          }
+          data = await res.json();
+        } catch (err) {
+          showToast(err.message || '关键词删除规则加载失败', true);
+          return;
+        }
+        kdWritable = !!data.writable;
+        document.getElementById('kd-disabled-banner').hidden = !!data.enabled;
+        document.getElementById('kd-readonly-banner').hidden = kdWritable;
+        document.getElementById('kd-save').disabled = !kdWritable;
+        document.getElementById('kd-errors').hidden = true;
+        const rules = Array.isArray(data.rules) ? data.rules : [];
+        renderKdRows(rules);
+        document.getElementById('kd-meta').textContent = `已加载 ${rules.length} 条规则${data.file ? ' · ' + data.file : ''}`;
+      }
+
+      async function saveKdRules() {
+        const rows = Array.from(document.querySelectorAll('#kd-rows .kw-row'));
+        const rules = rows.map(kdRuleFromDom);
+        const btn = document.getElementById('kd-save');
+        const errBox = document.getElementById('kd-errors');
+        btn.disabled = true;
+        try {
+          const res = await fetch('/admin/api/keyword_deletions', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': getCookie('kk_admin_csrf'),
+            },
+            body: JSON.stringify({ rules }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (Array.isArray(data.errors) && data.errors.length) {
+              errBox.innerHTML = `<strong>保存失败：</strong><ul>${data.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`;
+              errBox.hidden = false;
+            } else {
+              errBox.hidden = true;
+            }
+            throw new Error(data.detail || '保存失败');
+          }
+          errBox.hidden = true;
+          document.getElementById('kd-meta').textContent = `已保存 ${data.count} 条规则（立即生效）`;
+          showToast('关键词删除规则已保存并生效');
+        } catch (err) {
+          showToast(err.message || '保存失败', true);
+        } finally {
+          btn.disabled = !kdWritable;
+        }
+      }
+
+      document.getElementById('kd-add').addEventListener('click', () => {
+        const box = document.getElementById('kd-rows');
+        const empty = box.querySelector('.empty');
+        if (empty) empty.remove();
+        box.insertAdjacentHTML('beforeend', kdRowHtml({ keywords: [] }));
+      });
+      document.getElementById('kd-refresh').addEventListener('click', loadKdRules);
+      document.getElementById('kd-save').addEventListener('click', saveKdRules);
+      document.getElementById('kd-rows').addEventListener('click', (e) => {
+        const del = e.target.closest('.kw-del');
+        if (del) del.closest('.kw-row').remove();
+      });
+      document.getElementById('kd-rows').addEventListener('change', (e) => {
+        const sel = e.target.closest('.kd-type');
+        if (!sel) return;
+        const row = sel.closest('.kw-row');
+        const isPattern = sel.value === 'pattern';
+        row.querySelector('.kd-keywords').hidden = isPattern;
+        row.querySelector('.kd-match').hidden = isPattern;
+        row.querySelector('.kw-case').hidden = isPattern;
+        row.querySelector('.kd-pattern').hidden = !isPattern;
+      });
     </script>
   </body>
 </html>
