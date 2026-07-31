@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>KKBot Admin · 登录</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap"
+    />
+    <style>
+      :root {
+        --color-primary: #2563eb;
+        --color-primary-hover: #1d4ed8;
+        --color-bg: #f8fafc;
+        --color-card: #ffffff;
+        --color-border: #e2e8f0;
+        --color-text: #0f172a;
+        --color-text-muted: #64748b;
+        --color-destructive: #dc2626;
+        --color-destructive-bg: #fef2f2;
+        color-scheme: light;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC",
+          "Microsoft YaHei", Arial, sans-serif;
+        color: var(--color-text);
+        background: var(--color-bg);
+      }
+
+      body {
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+        padding-top: calc(24px + env(safe-area-inset-top, 0px));
+      }
+
+      .card {
+        width: 100%;
+        max-width: 420px;
+        background: var(--color-card);
+        border: 1px solid var(--color-border);
+        border-radius: 16px;
+        padding: 36px 32px;
+        box-shadow: 0 24px 48px -28px rgba(15, 23, 42, 0.18),
+          0 4px 12px -6px rgba(15, 23, 42, 0.06);
+        text-align: center;
+      }
+
+      .logo {
+        width: 48px;
+        height: 48px;
+        margin: 0 auto 16px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(37, 99, 235, 0.08);
+        color: var(--color-primary);
+      }
+
+      .logo svg {
+        width: 26px;
+        height: 26px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .subtitle {
+        margin: 0 0 24px;
+        font-size: 14px;
+        color: var(--color-text-muted);
+        line-height: 1.6;
+      }
+
+      .error {
+        margin: 0 0 20px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: var(--color-destructive-bg);
+        color: var(--color-destructive);
+        font-size: 13px;
+        text-align: left;
+        border: 1px solid rgba(220, 38, 38, 0.18);
+      }
+
+      .login-area {
+        display: flex;
+        justify-content: center;
+        min-height: 56px;
+        margin: 4px 0 16px;
+      }
+
+      .hint {
+        margin: 16px 0 0;
+        padding-top: 16px;
+        border-top: 1px solid var(--color-border);
+        font-size: 12px;
+        color: var(--color-text-muted);
+        line-height: 1.6;
+      }
+
+      .hint code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #f1f5f9;
+        padding: 1px 6px;
+        border-radius: 4px;
+        color: var(--color-text);
+        font-size: 12px;
+      }
+
+      .disabled-message {
+        font-size: 13px;
+        color: var(--color-text-muted);
+        line-height: 1.7;
+      }
+      /* UI/UX Pro 系统覆盖：与后台一致的安全运营登录页 */
+      :root {
+        --color-primary: #1e40af;
+        --color-primary-hover: #1d4ed8;
+        --color-bg: #f5f7fb;
+        --color-card: #ffffff;
+        --color-border: #dbeafe;
+        --color-text: #0f172a;
+        --color-text-muted: #475569;
+        --color-destructive: #dc2626;
+        --color-destructive-bg: #fef2f2;
+        --font-sans: "Fira Sans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+        --font-mono: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      html, body { font-family: var(--font-sans); }
+      body {
+        background:
+          radial-gradient(circle at 18% 10%, rgba(59, 130, 246, 0.16), transparent 32%),
+          radial-gradient(circle at 80% 80%, rgba(217, 119, 6, 0.10), transparent 28%),
+          linear-gradient(180deg, #f8fbff 0%, var(--color-bg) 100%);
+      }
+      .card {
+        max-width: 460px;
+        border-color: rgba(219, 234, 254, 0.95);
+        border-radius: 22px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 28px 64px -36px rgba(30, 64, 175, 0.36);
+      }
+      .logo {
+        background: linear-gradient(135deg, rgba(30, 64, 175, 0.14), rgba(59, 130, 246, 0.08));
+        box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.10);
+      }
+      h1 { letter-spacing: -0.03em; }
+      .subtitle { color: var(--color-text-muted); }
+      .error {
+        border-color: rgba(220, 38, 38, 0.24);
+        font-weight: 500;
+      }
+      .hint code, .disabled-message code {
+        font-family: var(--font-mono);
+        background: #eff6ff;
+        color: var(--color-primary);
+      }
+      .disabled-message {
+        padding: 14px 16px;
+        border: 1px solid var(--color-border);
+        border-radius: 14px;
+        background: #f8fbff;
+      }
+      @media (max-width: 480px) {
+        body { padding: 16px; }
+        .card { padding: 28px 22px; border-radius: 18px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+      </div>
+      <h1>KKBot Admin</h1>
+      <p class="subtitle">仅授权群的管理员可登录，使用 Telegram 账号继续。</p>
+
+      {% if error %}
+      <div class="error" role="alert">{{ error }}</div>
+      {% endif %}
+
+      {% if enabled %}
+      <div class="login-area">
+        <script
+          async
+          src="https://telegram.org/js/telegram-widget.js?22"
+          data-telegram-login="{{ bot_username }}"
+          data-size="large"
+          data-radius="10"
+          data-auth-url="/admin/login/callback"
+          data-request-access="write"
+        ></script>
+      </div>
+      {% else %}
+      <p class="disabled-message">
+        后台暂未启用，请联系运维确认 <code>ADMIN_WEB_ENABLED</code> 与
+        <code>ALLOWED_CHAT_IDS</code> 配置后重启服务。
+      </p>
+      {% endif %}
+    </main>
+  </body>
+</html>

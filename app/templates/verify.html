@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Telegram 加群验证</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --color-primary: #1e40af;
+        --color-primary-hover: #1d4ed8;
+        --color-bg: #f5f7fb;
+        --color-card: #ffffff;
+        --color-border: #dbeafe;
+        --color-text: #0f172a;
+        --color-text-muted: #475569;
+        --color-success: #047857;
+        --color-success-bg: #ecfdf5;
+        --color-warn: #b45309;
+        --color-warn-bg: #fffbeb;
+        --font-sans: "Fira Sans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        font-family: var(--font-sans);
+        color: var(--color-text);
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        display: flex;
+        min-height: 100vh;
+        min-height: 100dvh;
+        align-items: center;
+        justify-content: center;
+        padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+        background:
+          radial-gradient(circle at 16% 8%, rgba(59, 130, 246, 0.18), transparent 32%),
+          radial-gradient(circle at 84% 86%, rgba(217, 119, 6, 0.10), transparent 26%),
+          linear-gradient(180deg, #f8fbff 0%, var(--color-bg) 100%);
+      }
+
+      .card {
+        width: min(460px, 100%);
+        background: rgba(255, 255, 255, 0.94);
+        border: 1px solid rgba(219, 234, 254, 0.95);
+        color: var(--color-text);
+        border-radius: 24px;
+        padding: 34px 30px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 28px 64px -36px rgba(30, 64, 175, 0.36);
+        backdrop-filter: blur(14px);
+        text-align: center;
+      }
+
+      .card::before {
+        content: "";
+        display: block;
+        width: 52px;
+        height: 52px;
+        margin: 0 auto 16px;
+        border-radius: 16px;
+        background:
+          linear-gradient(135deg, rgba(30, 64, 175, 0.14), rgba(59, 130, 246, 0.08)),
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' fill='none' stroke='%231e40af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='m9 12 2 2 4-5'/%3E%3C/svg%3E") center / 28px 28px no-repeat;
+        box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.10);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 24px;
+        line-height: 1.2;
+        letter-spacing: -0.03em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--color-text-muted);
+        line-height: 1.7;
+        white-space: pre-wrap;
+      }
+
+      button {
+        width: 100%;
+        min-height: 48px;
+        margin-top: 24px;
+        padding: 14px 18px;
+        font-size: 16px;
+        border: 1px solid var(--color-primary);
+        border-radius: 14px;
+        cursor: pointer;
+        background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
+        color: #fff;
+        font-weight: 700;
+        box-shadow: 0 12px 28px -18px rgba(30, 64, 175, 0.9);
+        transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.62;
+        box-shadow: none;
+      }
+
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 16px 34px -20px rgba(30, 64, 175, 0.95);
+      }
+
+      button:focus-visible {
+        outline: 3px solid rgba(30, 64, 175, 0.22);
+        outline-offset: 2px;
+      }
+
+      #status {
+        min-height: 22px;
+        margin-top: 18px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: #eff6ff;
+        border: 1px solid var(--color-border);
+        font-size: 14px;
+        color: var(--color-primary);
+      }
+      #status:empty { display: none; }
+
+      @media (max-width: 480px) {
+        .card { padding: 28px 22px; border-radius: 20px; }
+        h1 { font-size: 21px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; animation: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Telegram 加群验证</h1>
+      <p id="message">{{ message.replace('\n', '<br>') | safe }}</p>
+      {% if show_button %}
+      <button id="verify-btn">完成验证</button>
+      {% endif %}
+      <div id="status"></div>
+    </div>
+
+    <script>
+      const verifyBtn = document.getElementById("verify-btn");
+      const statusEl = document.getElementById("status");
+      const messageEl = document.getElementById("message");
+
+      function updateStatus(text, success = false) {
+        statusEl.textContent = text;
+        statusEl.style.color = success ? "var(--color-success)" : "var(--color-primary)";
+        statusEl.style.background = success ? "var(--color-success-bg)" : "#eff6ff";
+      }
+
+      if (verifyBtn) {
+        verifyBtn.addEventListener("click", async () => {
+          verifyBtn.disabled = true;
+          updateStatus("验证中，请稍候...");
+
+          try {
+            const response = await fetch(`/verify/{{ token }}`, {
+              method: "POST",
+              headers: { "Accept": "application/json" },
+            });
+
+            const data = await response.json();
+
+            if (data.status === "ok") {
+              updateStatus("验证成功！请返回 Telegram 查看机器人的提示。", true);
+              messageEl.textContent = "验证已完成，感谢配合。";
+            } else if (data.status === "expired") {
+              updateStatus("链接已过期，请回到 Telegram 重新获取新的验证链接。");
+              messageEl.textContent = "链接已过期。";
+            } else if (data.status === "already_verified") {
+              updateStatus("该链接已经使用过了。");
+              messageEl.textContent = "链接已完成验证。";
+            } else if (data.status === "bot_error") {
+              updateStatus(data.message || "机器人权限不足，请联系管理员处理。");
+            } else {
+              updateStatus("未知状态，请稍后重试或联系管理员。");
+            }
+          } catch (error) {
+            console.error(error);
+            updateStatus("请求失败，请稍后刷新页面再试。");
+            verifyBtn.disabled = false;
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
+

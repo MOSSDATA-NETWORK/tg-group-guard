@@ -1,0 +1,10 @@
+aiogram~=3.5
+fastapi~=0.111
+uvicorn[standard]~=0.30
+aiosqlite~=0.20
+python-dotenv~=1.0
+Jinja2>=3.1,<4
+aiohttp~=3.12
+aiohttp-socks>=0.8.4
+redis~=5.0
+prometheus_client>=0.20,<1
