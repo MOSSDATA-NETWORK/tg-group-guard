@@ -10,6 +10,7 @@ from uvicorn.config import LOGGING_CONFIG as UVICORN_LOGGING_CONFIG
 from aiogram.exceptions import TelegramNetworkError
 
 from .bot import create_bot, create_dispatcher
+from .bot_commands import sync_bot_commands
 from .bot_components.scoring import RedisDailyScoreManager
 from .bot_components.verification import run_cleanup_scheduler
 from .config import describe_effective_config, load_settings
@@ -69,6 +70,7 @@ async def main() -> None:
     metrics = build_metrics(settings.enable_metrics)
 
     bot = create_bot(settings, store)
+    await sync_bot_commands(bot)
     dispatcher = create_dispatcher(
         settings,
         store,
