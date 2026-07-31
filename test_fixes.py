@@ -212,6 +212,60 @@ def test_keyword_save_and_reload():
     print("PASS: 规则保存-热重载闭环正常,无临时文件残留")
 
 
+async def test_join_prompt_sent_once():
+    """入群双事件:同一用户并发/连续触发 process_new_member,验证提示只发一次。"""
+    from types import SimpleNamespace
+
+    from app.bot_components.verification import process_new_member
+
+    class FakeBot:
+        def __init__(self):
+            self.sent = []
+            self.restricted = []
+
+        async def restrict_chat_member(self, **kwargs):
+            self.restricted.append(kwargs)
+
+        async def send_message(self, chat_id, text, **kwargs):
+            self.sent.append(text)
+            return SimpleNamespace(message_id=len(self.sent), chat=SimpleNamespace(id=chat_id))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = VerificationStore(Path(tmp) / "t.sqlite3")
+        await store.connect()
+        bot = FakeBot()
+        settings = SimpleNamespace(
+            message_ttl_seconds=None,
+            verification_timeout_seconds=0,  # 避免调度后台删除任务
+            bot_username="dummybot",
+        )
+        member = SimpleNamespace(id=42, username="u", full_name="User U")
+
+        # ① 模拟 Telegram 对一次入群同时推送 new_chat_members + chat_member 双事件
+        await asyncio.gather(
+            process_new_member(bot, store, settings, chat_id=-100, chat_title="测试群", member=member),
+            process_new_member(bot, store, settings, chat_id=-100, chat_title="测试群", member=member),
+        )
+        assert len(bot.sent) == 1, f"并发双事件应只发 1 条提示,实际 {len(bot.sent)} 条"
+
+        # ② 抑制窗口内串行再触发(第二个事件晚到)也不应重发
+        await process_new_member(bot, store, settings, chat_id=-100, chat_title="测试群", member=member)
+        assert len(bot.sent) == 1, f"窗口内重复触发不应重发,实际 {len(bot.sent)} 条"
+
+        # ③ 窗口外(用户退群重进,pending 记录已存在超 30s)仍应正常重发提示
+        old_ts = (datetime.now(tz=timezone.utc) - timedelta(seconds=60)).timestamp()
+        async with store._lock:
+            await store._db.execute(
+                "UPDATE verifications SET created_at = ? WHERE chat_id = ? AND user_id = ?",
+                (old_ts, -100, 42),
+            )
+            await store._db.commit()
+        await process_new_member(bot, store, settings, chat_id=-100, chat_title="测试群", member=member)
+        assert len(bot.sent) == 2, f"窗口外重进应重发提示,实际 {len(bot.sent)} 条"
+        await store.close()
+    print("PASS: 入群双事件只发一次验证提示,窗口外重进正常重发")
+
+
 async def main():
     await test_summarize_metrics_keyerror()
     await test_recent_events_default_30d()
@@ -221,6 +275,7 @@ async def main():
     test_keyword_config_load_and_hotreload()
     test_keyword_validate_payload()
     test_keyword_save_and_reload()
+    await test_join_prompt_sent_once()
     print("\n全部回归验证通过")
 
 

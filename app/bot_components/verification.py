@@ -123,7 +123,52 @@ async def run_cleanup_scheduler(
         logger.exception("清理任务异常", exc_info=exc)
 
 
+# 同一用户进群事件串行化 + 提示重发抑制窗口。
+# Telegram 对一次真实入群会同时推送 new_chat_members 服务消息和 chat_member 更新,
+# 两个 handler 都会触发 process_new_member;没有抑制时用户会看到两条验证提示。
+_JOIN_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
+_JOIN_LOCKS_GUARD = asyncio.Lock()
+# 刚创建的 pending 记录在该窗口内不触发"重发提示",用于吞掉双事件;
+# 窗口外的重进场景(用户退群后再次加入)仍会正常重发
+_PROMPT_RESEND_SUPPRESS_SECONDS = 30
+
+
+async def _acquire_join_lock(chat_id: int, user_id: int) -> asyncio.Lock:
+    async with _JOIN_LOCKS_GUARD:
+        lock = _JOIN_LOCKS.get((chat_id, user_id))
+        if lock is None:
+            lock = asyncio.Lock()
+            _JOIN_LOCKS[(chat_id, user_id)] = lock
+            # 兜底清理,防字典无限增长
+            if len(_JOIN_LOCKS) > 10000:
+                for key in list(_JOIN_LOCKS)[:5000]:
+                    _JOIN_LOCKS.pop(key, None)
+        return lock
+
+
 async def process_new_member(
+    bot: Bot,
+    store: VerificationStore,
+    settings: Settings,
+    *,
+    chat_id: int,
+    chat_title: Optional[str],
+    member: User,
+) -> None:
+    # 串行化同一用户的进群处理,避免双事件并发时各自创建记录/发提示
+    lock = await _acquire_join_lock(chat_id, member.id)
+    async with lock:
+        await _process_new_member_inner(
+            bot,
+            store,
+            settings,
+            chat_id=chat_id,
+            chat_title=chat_title,
+            member=member,
+        )
+
+
+async def _process_new_member_inner(
     bot: Bot,
     store: VerificationStore,
     settings: Settings,
@@ -136,6 +181,16 @@ async def process_new_member(
     prompt_ttl = settings.verification_timeout_seconds
     existing = await store.get_pending(chat_id, member.id)
     if existing is not None:
+        age_seconds = (datetime.now(tz=UTC) - existing.created_at).total_seconds()
+        if age_seconds < _PROMPT_RESEND_SUPPRESS_SECONDS:
+            logger.info(
+                "待验证记录刚创建(%.1fs),判定为入群双事件重复触发,跳过重发提示 chat_id=%s user_id=%s token=%s",
+                age_seconds,
+                chat_id,
+                member.id,
+                existing.token,
+            )
+            return
         logger.info(
             "检测到已有待验证记录，重发提示 chat_id=%s user_id=%s token=%s",
             chat_id,
