@@ -41,20 +41,6 @@ async def is_authorized_admin(bot: Bot, settings: "Settings", message: Message) 
     return False
 
 
-def _chat_display_name(chat) -> str:
-    display = getattr(chat, "full_name", None)
-    if display:
-        return display
-    username = getattr(chat, "username", None)
-    if username:
-        return f"@{username}"
-    first_name = getattr(chat, "first_name", None)
-    last_name = getattr(chat, "last_name", None)
-    if first_name or last_name:
-        return " ".join(filter(None, [first_name, last_name]))
-    return str(getattr(chat, "id", "unknown"))
-
-
 async def resolve_target_user(message: Message, bot: Bot) -> Optional[Tuple[int, str]]:
     if message.reply_to_message and message.reply_to_message.from_user:
         user = message.reply_to_message.from_user

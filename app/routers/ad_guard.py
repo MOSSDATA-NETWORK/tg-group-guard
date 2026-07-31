@@ -16,7 +16,6 @@ from aiogram.types import (
     Poll,
 )
 
-from ..ad_guard_rules import render_prompt_message
 from ..keyword_replies import get_keyword_reply_config, try_keyword_reply
 from ..bot_components.ad_guard import (
     check_advertisement,

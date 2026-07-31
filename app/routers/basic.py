@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import quote_plus
-
 from aiogram import Bot, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 

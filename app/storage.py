@@ -472,28 +472,6 @@ class VerificationStore:
             )
             await self._db.commit()
 
-    async def get_ad_deletion(self, token: str) -> Optional[dict]:
-        await self._ensure_connected()
-        async with self._lock:
-            cursor = await self._db.execute(
-                "SELECT * FROM ad_deletions WHERE token = ?",
-                (token,),
-            )
-            row = await cursor.fetchone()
-            await cursor.close()
-        if row is None:
-            return None
-        return {
-            "token": row["token"],
-            "chat_id": row["chat_id"],
-            "user_id": row["user_id"],
-            "message_text": row["message_text"],
-            "display_name": row["display_name"],
-            "confidence": row["confidence"],
-            "deleted_at": row["deleted_at"],
-            "restore_eligible_until": row["restore_eligible_until"],
-        }
-
     async def delete_ad_deletion(self, token: str) -> None:
         await self._ensure_connected()
         async with self._lock:
@@ -652,14 +630,6 @@ class VerificationStore:
                 (chat_id, user_id),
             )
             await self._db.commit()
-
-    async def clear_ad_qualifications(self) -> int:
-        """清空全部合格/进度记录（按全新部署重置）。"""
-        await self._ensure_connected()
-        async with self._lock:
-            cursor = await self._db.execute("DELETE FROM ad_qualified_users")
-            await self._db.commit()
-            return int(cursor.rowcount or 0)
 
     async def record_ad_decision(
         self,

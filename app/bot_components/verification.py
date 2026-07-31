@@ -210,14 +210,6 @@ async def _process_new_member_inner(
         )
         if prompt_message_id:
             existing.prompt_message_id = prompt_message_id
-        await notify_member(
-            bot=bot,
-            chat_id=chat_id,
-            chat_title=chat_title,
-            member=member,
-            expire_at=existing.expire_at,
-            ttl=prompt_ttl,
-        )
         return
 
     if await store.delete_if_exists(chat_id, member.id):
@@ -268,14 +260,6 @@ async def _process_new_member_inner(
     )
     if prompt_message_id:
         record.prompt_message_id = prompt_message_id
-    await notify_member(
-        bot=bot,
-        chat_id=chat_id,
-        chat_title=chat_title,
-        member=member,
-        expire_at=expire_at,
-        ttl=prompt_ttl,
-    )
 
 
 async def restrict_pending_member(bot: Bot, chat_id: int, user_id: int) -> None:
@@ -301,19 +285,6 @@ async def restrict_pending_member(bot: Bot, chat_id: int, user_id: int) -> None:
             exc,
             exc_info=exc,
         )
-
-
-async def notify_member(
-    bot: Bot,
-    chat_id: int,
-    chat_title: Optional[str],
-    member: User,
-    *,
-    expire_at: datetime,
-    ttl: Optional[int],
-) -> None:
-    _ = (bot, chat_id, chat_title, member, expire_at, ttl)
-    logger.debug("跳过额外提示，已通过按钮提供验证链接 chat_id=%s user_id=%s", chat_id, member.id)
 
 
 async def send_group_prompt(
@@ -462,7 +433,6 @@ __all__ = [
     "cleanup_expired_records",
     "delete_prompt_message",
     "lift_restrictions",
-    "notify_member",
     "notify_verification_success",
     "process_new_member",
     "restrict_pending_member",
