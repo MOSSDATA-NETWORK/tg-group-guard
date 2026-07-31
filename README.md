@@ -1,4 +1,4 @@
-# KKBot
+# Telegram-group-guard-bot
 
 Telegram 群组入群验证 + AI 广告守卫机器人。
 
