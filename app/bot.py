@@ -9,7 +9,7 @@ try:
     from aiogram.client.session.aiohttp import AiohttpSession
     from aiogram.enums import ParseMode
 except ModuleNotFoundError as exc:
-    raise RuntimeError("运行 KKBot 需要先安装 aiogram 依赖") from exc
+    raise RuntimeError("运行 Telegram-group-guard-bot 需要先安装 aiogram 依赖") from exc
 
 
 from .ad_guard_rules import configure_ad_guard_rules

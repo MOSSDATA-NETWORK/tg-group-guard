@@ -39,7 +39,7 @@ class NullMetrics:
 
 
 class PrometheusMetrics:
-    """KKBot 的 Prometheus 指标定义与收集器。
+    """Telegram-group-guard-bot 的 Prometheus 指标定义与收集器。
 
     所有指标挂在 self.registry 上,便于单进程多实例隔离。
     """

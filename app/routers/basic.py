@@ -97,7 +97,7 @@ def build_basic_router(services: BotServices) -> Router:
         await send_message_with_ttl(
             bot,
             chat_id=message.chat.id,
-            text="我是KK的群管小助手",
+            text="我是 Telegram-group-guard 群管小助手",
             ttl=settings.message_ttl_seconds,
         )
 

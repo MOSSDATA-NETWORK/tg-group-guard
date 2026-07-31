@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 try:  # pragma: no cover - 运行时需安装依赖
     import aiosqlite  # type: ignore[import]
 except ModuleNotFoundError as exc:  # pragma: no cover
-    raise RuntimeError("运行 KKBot 需要安装 aiosqlite 依赖") from exc
+    raise RuntimeError("运行 Telegram-group-guard-bot 需要安装 aiosqlite 依赖") from exc
 
 
 from .bot_components.constants import CHINA_TZ
