@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>KKBot Admin · 登录</title>
+    <title>TG-GUARD ADMIN · 登录</title>
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap"
@@ -192,7 +192,7 @@
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
         </svg>
       </div>
-      <h1>KKBot Admin</h1>
+      <h1>TG-GUARD ADMIN</h1>
       <p class="subtitle">仅授权群的管理员可登录，使用 Telegram 账号继续。</p>
 
       {% if error %}
@@ -201,13 +201,27 @@
 
       {% if enabled %}
       <div class="login-area">
+        <script>
+          // Telegram 已弃用 data-auth-url 重定向模式(点击后显示 "deprecated"),
+          // 改用 data-onauth 回调:在浏览器侧拿到登录数据后拼接查询串跳转回调,
+          // 服务端 /admin/login/callback 的签名校验逻辑保持不变。
+          function onTelegramAuth(user) {
+            var params = new URLSearchParams();
+            Object.keys(user).forEach(function (key) {
+              if (user[key] !== undefined && user[key] !== null) {
+                params.append(key, user[key]);
+              }
+            });
+            window.location.href = "/admin/login/callback?" + params.toString();
+          }
+        </script>
         <script
           async
           src="https://telegram.org/js/telegram-widget.js?22"
           data-telegram-login="{{ bot_username }}"
           data-size="large"
           data-radius="10"
-          data-auth-url="/admin/login/callback"
+          data-onauth="onTelegramAuth(user)"
           data-request-access="write"
         ></script>
       </div>
