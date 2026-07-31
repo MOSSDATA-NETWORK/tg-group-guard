@@ -1,11 +1,13 @@
 # Telegram-group-guard-bot
 
-Telegram 群组入群验证 + AI 广告守卫机器人。
+Telegram 群组入群验证 + AI 广告守卫 + 关键词自动管理机器人。
 
 - 新成员入群限制发言，完成 Web 验证后解除
 - 可选 AI / 启发式广告检测（Ollama 或 OpenAI 兼容接口）
+- 关键词自动回复（支持 HTML / MarkdownV2 / 纯文本）
+- 关键词自动删除（命中规则后自动删除消息）
 - 群管指令：警告、封禁、解封等
-- Admin WebUI（Telegram Login Widget）
+- Admin WebUI（Telegram Login Widget）在线管理规则
 - Prometheus `/metrics`（可选）
 
 ## 功能概览
@@ -14,7 +16,8 @@ Telegram 群组入群验证 + AI 广告守卫机器人。
 |------|------|
 | 入群验证 | 限制新成员 → 私聊/按钮获取链接 → Web 页完成验证 |
 | 广告守卫 | LLM + 规则热重载；支持投票复核、评分跳过 |
-| 关键词回复 | 命中关键词/正则自动回复；规则文件热重载、按群冷却 |
+| 关键词回复 | 命中关键词/正则自动回复；支持 HTML / MarkdownV2；规则文件热重载 |
+| 关键词删除 | 命中关键词/正则自动删除用户消息；Admin WebUI 在线配置 |
 | 管理指令 | `/warn` `/ban` `/unban` `/sb` `/id` `/re` `/up` 等 |
 | 管理后台 | `/admin`，仅 `ALLOWED_CHAT_IDS` 中群的管理员可登录 |
 
@@ -26,19 +29,70 @@ Telegram 群组入群验证 + AI 广告守卫机器人。
 
 ## 快速开始
 
+### 首次部署
+
 ```bash
+# 1. 克隆仓库
+git clone https://github.com/MOSSDATA-NETWORK/tg-group-guard.git
+cd tg-group-guard
+
+# 2. 创建虚拟环境
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+# 3. 安装依赖
 pip install -r requirements.txt
 
+# 4. 复制并编辑配置文件
 cp .env.example .env
-# 编辑 .env：至少填写 TELEGRAM_BOT_TOKEN、TELEGRAM_BOT_USERNAME、VERIFY_BASE_URL
+# 编辑 .env，至少填写以下必填项：
+#   TELEGRAM_BOT_TOKEN      # 从 @BotFather 获取
+#   TELEGRAM_BOT_USERNAME   # 机器人用户名（不含 @）
+#   VERIFY_BASE_URL         # 外网可达的验证页基址，如 https://bot.example.com
+#   ALLOWED_CHAT_IDS        # 授权群 ID（逗号分隔）
 
-mkdir -p data
+# 5. 创建数据目录
+mkdir -p data config
+
+# 6. 启动服务
 python -m app.main
 ```
 
-默认 Web 监听 `WEB_HOST`/`WEB_PORT`（见 `.env.example`）。
+### 设置 Bot 命令菜单
+
+首次启动后，在 [@BotFather](https://t.me/BotFather) 执行 `/setcommands`，粘贴以下内容：
+
+```
+start - 显示机器人信息
+id - 查询用户信息
+warn - 警告目标成员
+ban - 封禁目标成员
+unban - 解封目标成员
+sb - 删除消息并封禁（Spam+Ban）
+re - 转发目标消息到当前群
+up - 提升目标成员为管理员
+```
+
+> 机器人启动时会自动同步命令列表到 Telegram，但 `/setcommands` 可以自定义菜单显示文本。
+
+### 更新教程
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 更新依赖（每次更新都建议执行，可能有新依赖）
+pip install -r requirements.txt
+
+# 3. 检查 .env.example 是否有新增配置项
+diff .env.example .env
+# 如有新增项，按需要添加到 .env
+
+# 4. 重启服务
+# 使用 systemd / pm2 / screen 等管理进程的用户，重启对应服务即可
+```
+
+> 更新不会丢失数据：`data/verifications.sqlite3`、配置文件和规则文件均会保留。建议在重大更新前备份 `data/` 目录。
 
 ## 配置参数
 
@@ -145,6 +199,13 @@ python -m app.main
 | `KEYWORD_REPLY_RULES_FILE` | `config/keyword_replies.json` | 规则文件，支持热重载 |
 | `KEYWORD_REPLY_COOLDOWN_SECONDS` | `60` | 同一群同一规则的默认冷却秒数；规则文件中的 `cooldown_seconds` 可覆盖 |
 
+### 关键词自动删除
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `KEYWORD_DELETION_ENABLED` | `false` | 总开关；命中规则后自动删除用户消息 |
+| `KEYWORD_DELETION_RULES_FILE` | `config/keyword_deletions.json` | 规则文件，支持热重载；可在 Admin WebUI 在线编辑 |
+
 ### 日志
 
 | 变量 | 默认 | 说明 |
@@ -177,8 +238,6 @@ python -m app.main
 
 ## 关键词自动回复
 
-## 关键词自动回复
-
 设置 `KEYWORD_REPLY_ENABLED=true` 后，群消息命中 `config/keyword_replies.json` 中的规则时自动回复（独立于广告守卫，即使 `AD_GUARD_ENABLED=false` 也生效）。
 
 规则可直接在 Admin WebUI（`/admin` → 关键词回复）在线编辑，保存后立即生效；也可以手动修改 `config/keyword_replies.json`，支持热重载：
@@ -189,14 +248,36 @@ python -m app.main
   "rules": [
     { "keywords": ["群规", "规则"], "match": "any", "reply": "📜 群规请查看置顶消息。" },
     { "keywords": ["新人", "进群"], "match": "all", "reply": "👋 请先完成验证。" },
-    { "pattern": "(?i)(怎么|如何)(加入|验证)", "reply": "🔐 请点击群内验证按钮。" }
+    { "pattern": "(?i)(怎么|如何)(加入|验证)", "reply": "🔐 请点击群内验证按钮。" },
+    { "keywords": [" bold "], "reply": "<b> bold text </b>", "parse_mode": "HTML" },
+    { "keywords": [" markdown "], "reply": "* bold text *", "parse_mode": "MarkdownV2" }
   ]
 }
 ```
 
 - `keywords` 为包含匹配，`match: "any"` 任一命中 / `"all"` 全部命中；默认不区分大小写（`case_sensitive: true` 可改）
 - `pattern` 为正则匹配，与 `keywords` 同时配置时 `pattern` 优先
+- `parse_mode` 可选 `"HTML"` / `"MarkdownV2"`，留空则为纯文本。支持加粗、链接、按钮等富文本格式
 - 命令（`/` 开头）与编辑消息不触发；同一群同一规则在冷却期内只回复一次
+
+## 关键词自动删除
+
+设置 `KEYWORD_DELETION_ENABLED=true` 后，群消息命中 `config/keyword_deletions.json` 中的规则时自动删除该消息。
+
+规则可在 Admin WebUI（`/admin` → 关键词删除）在线编辑，保存后立即生效：
+
+```json
+{
+  "rules": [
+    { "keywords": ["垃圾广告"], "match": "any" },
+    { "pattern": "(?i)(加群|扫码|转账).*" }
+  ]
+}
+```
+
+- 与关键词回复独立的配置系统和开关
+- 规则结构与关键词回复类似，但**不需要 `reply` 字段**
+- 命中后自动删除消息，不发送任何回复
 
 ## Admin WebUI
 
@@ -220,17 +301,19 @@ SSL_KEY_FILE=ssl/your.key
 
 ```
 app/
-  main.py              # 入口
-  bot.py / web.py      # Bot 与 FastAPI
-  routers/             # 验证、广告、管理指令
-  bot_components/      # 验证、评分、权限等
-  keyword_replies.py   # 关键词回复引擎（热重载 + 后台校验/保存）
-  templates/           # 验证页与后台 UI
-  storage.py           # SQLite
+  main.py                 # 入口
+  bot.py / web.py         # Bot 与 FastAPI
+  routers/                # 验证、广告、管理指令
+  bot_components/         # 验证、评分、权限等
+  keyword_replies.py      # 关键词回复引擎（热重载 + 后台校验/保存）
+  keyword_deletions.py    # 关键词删除引擎（热重载 + 后台校验/保存）
+  templates/              # 验证页与后台 UI
+  storage.py              # SQLite
 config/
-  ad_guard_rules.json  # 广告规则（支持热重载）
-  keyword_replies.json # 关键词回复规则（热重载，可在后台编辑）
-test_fixes.py          # 回归测试（.venv 下运行：python test_fixes.py）
+  ad_guard_rules.json     # 广告规则（支持热重载）
+  keyword_replies.json    # 关键词回复规则（热重载，可在后台编辑）
+  keyword_deletions.json  # 关键词删除规则（热重载，可在后台编辑）
+test_fixes.py             # 回归测试（.venv 下运行：python test_fixes.py）
 ```
 
 ## 许可
