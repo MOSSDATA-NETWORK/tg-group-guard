@@ -1860,8 +1860,13 @@
             <label class="kw-case" ${isPattern ? 'hidden' : ''}>
               <input type="checkbox" class="kw-case-cb"${rule.case_sensitive ? ' checked' : ''} /> 区分大小写
             </label>
+            <select class="kw-parse-mode" aria-label="解析模式">
+              <option value=""${!rule.parse_mode ? ' selected' : ''}>纯文本</option>
+              <option value="HTML"${rule.parse_mode === 'HTML' ? ' selected' : ''}>HTML</option>
+              <option value="MarkdownV2"${rule.parse_mode === 'MarkdownV2' ? ' selected' : ''}>MarkdownV2</option>
+            </select>
             <button type="button" class="secondary kw-del" title="删除此规则">✕</button>
-            <textarea class="kw-reply" placeholder="回复内容（支持 HTML）">${esc(rule.reply || '')}</textarea>
+            <textarea class="kw-reply" placeholder="回复内容（支持 HTML / MarkdownV2）">${esc(rule.reply || '')}</textarea>
           </div>`;
       }
 
@@ -1875,12 +1880,15 @@
       function kwRuleFromDom(row) {
         const type = row.querySelector('.kw-type').value;
         const reply = row.querySelector('.kw-reply').value;
+        const parseMode = row.querySelector('.kw-parse-mode').value;
+        const base = { reply };
+        if (parseMode) base.parse_mode = parseMode;
         if (type === 'pattern') {
-          return { pattern: row.querySelector('.kw-pattern').value, reply };
+          return { pattern: row.querySelector('.kw-pattern').value, ...base };
         }
         const keywords = row.querySelector('.kw-keywords').value
           .split(/[,，\n]/).map((s) => s.trim()).filter(Boolean);
-        const rule = { keywords, reply };
+        const rule = { keywords, ...base };
         if (row.querySelector('.kw-match').value === 'all') rule.match = 'all';
         if (row.querySelector('.kw-case-cb').checked) rule.case_sensitive = true;
         return rule;

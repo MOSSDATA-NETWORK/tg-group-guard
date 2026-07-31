@@ -29,6 +29,7 @@ class KeywordRule:
     require_all: bool = False
     case_sensitive: bool = False
     pattern: Optional[Pattern[str]] = None
+    parse_mode: Optional[str] = None
 
     def matches(self, text: str) -> bool:
         if self.pattern is not None:
@@ -79,12 +80,16 @@ def _parse_rule(raw: object, index: int) -> Optional[KeywordRule]:
     if pattern is None and not keywords:
         logger.warning("关键词规则 #%s 需要配置 keywords 或 pattern,已忽略", index)
         return None
+    parse_mode = raw.get("parse_mode")
+    if isinstance(parse_mode, str):
+        parse_mode = parse_mode.strip() or None
     return KeywordRule(
         reply=reply,
         keywords=keywords,
         require_all=require_all,
         case_sensitive=case_sensitive,
         pattern=pattern,
+        parse_mode=parse_mode,
     )
 
 
@@ -229,14 +234,16 @@ async def try_keyword_reply(
                     for stale_key in [k for k, ts in _cooldowns.items() if ts < cutoff]:
                         _cooldowns.pop(stale_key, None)
         try:
-            await send_message_with_ttl(
-                bot,
+            kwargs = dict(
                 chat_id=message.chat.id,
                 text=rule.reply,
                 ttl=ttl,
                 disable_web_page_preview=True,
                 reply_parameters=ReplyParameters(message_id=message.message_id),
             )
+            if rule.parse_mode:
+                kwargs["parse_mode"] = rule.parse_mode
+            await send_message_with_ttl(bot, **kwargs)
             logger.info(
                 "关键词回复已发送 chat_id=%s rule=%s user_id=%s",
                 message.chat.id,
@@ -292,6 +299,16 @@ def validate_keyword_rules_payload(payload: object) -> tuple[dict, list[str]]:
         pattern_raw = item.get("pattern")
         keywords_raw = item.get("keywords")
         cleaned: dict = {"reply": reply}
+
+        parse_mode = item.get("parse_mode")
+        if isinstance(parse_mode, str) and parse_mode.strip():
+            pm = parse_mode.strip()
+            if pm not in {"MarkdownV2", "HTML", "markdown", "Markdown"}:
+                errors.append(f"{label}: parse_mode 只能是 MarkdownV2、HTML 或留空")
+            else:
+                if pm.lower() == "markdown":
+                    pm = "MarkdownV2"
+                cleaned["parse_mode"] = pm
 
         if isinstance(pattern_raw, str) and pattern_raw.strip():
             try:
