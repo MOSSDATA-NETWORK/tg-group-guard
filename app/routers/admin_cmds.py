@@ -18,6 +18,7 @@ from ..bot_components.permissions import (
     resolve_target_user,
 )
 from ..bot_components.tgdc import lookup_chat_dc, lookup_user_dc
+from ..chat_settings import resolve_chat
 from ..services.dependencies import BotServices
 
 logger = logging.getLogger(__name__)
@@ -270,7 +271,7 @@ def build_admin_commands_router(services: BotServices) -> Router:
             if len(parts) == 2:
                 reason_text = parts[1].strip()
 
-        warn_limit = settings.warn_limit
+        warn_limit = resolve_chat(settings, chat.id, "warn_limit")
         warning_count = await store.add_warning(
             chat_id=chat.id,
             user_id=target_user.id,

@@ -12,6 +12,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, User
 
 from ..config import Settings
+from ..chat_settings import resolve_chat
 from ..storage import VerificationRecord, VerificationStore
 from .constants import UTC
 from .messaging import send_message_with_ttl
@@ -177,7 +178,7 @@ async def _process_new_member_inner(
     chat_title: Optional[str],
     member: User,
 ) -> None:
-    message_ttl = settings.message_ttl_seconds
+    message_ttl = resolve_chat(settings, chat_id, "message_ttl_seconds")
     prompt_ttl = settings.verification_timeout_seconds
     existing = await store.get_pending(chat_id, member.id)
     if existing is not None:

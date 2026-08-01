@@ -33,6 +33,7 @@ from ..bot_components.messaging import (
 )
 from ..bot_components.moderation import handle_low_score_violation
 from ..bot_components.permissions import is_authorized_admin
+from ..chat_settings import resolve_chat
 from ..services.ad_pipeline import AdPipeline
 from ..services.dependencies import BotServices
 from ..state.ad_review import AdReviewContext
@@ -535,7 +536,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         ban_success = force_ban_triggered
         if ban_success:
             action_suffix = "（管理员已强制封禁）"
-        elif settings.ad_guard_ban:
+        elif resolve_chat(settings, chat_id, "ad_guard_ban"):
             if score_after_penalty <= settings.ad_guard_score_ban_threshold:
                 try:
                     await bot.ban_chat_member(chat_id, message.from_user.id)
@@ -624,7 +625,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             bot,
             chat_id=chat_id,
             text=notice,
-            ttl=settings.message_ttl_seconds,
+            ttl=resolve_chat(settings, chat_id, "message_ttl_seconds"),
             disable_web_page_preview=True,
             reply_markup=review_keyboard,
         )
@@ -658,17 +659,24 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 confidence=confidence,
             )
             await ad_review_store.put(review_id, context)
-            ttl_seconds = settings.message_ttl_seconds or 0
+            ttl_seconds = resolve_chat(settings, chat_id, "message_ttl_seconds") or 0
             # TTL 未配置时也要兜底过期(默认 1 小时),否则复核 case 会常驻内存
             expiry_delay = ttl_seconds + 5 if ttl_seconds > 0 else 3600
             ad_review_store.schedule_expiry(review_id, expiry_delay)
 
     @router.message(F.text | F.caption)
     async def handle_text_messages(message: Message, bot: Bot, *, is_edit: bool = False) -> None:
+        # 按群配置：有覆盖用覆盖，否则跟随全局
+        _cid = message.chat.id
+        _kw_reply_on = resolve_chat(settings, _cid, "keyword_reply_enabled")
+        _kw_delete_on = resolve_chat(settings, _cid, "keyword_deletion_enabled")
+        _ad_guard_on = resolve_chat(settings, _cid, "ad_guard_enabled")
+        _msg_ttl = resolve_chat(settings, _cid, "message_ttl_seconds")
+
         # 关键词自动回复:独立于广告守卫开关;编辑消息不触发,避免重复回复
         if (
             not is_edit
-            and settings.keyword_reply_enabled
+            and _kw_reply_on
             and message.chat.type in {"group", "supergroup"}
             and message.sender_chat is None
             and message.from_user is not None
@@ -685,13 +693,13 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                         if kw_cooldown is not None
                         else settings.keyword_reply_cooldown_seconds
                     ),
-                    ttl=settings.message_ttl_seconds,
+                    ttl=_msg_ttl,
                 )
 
         # 关键词自动删除:独立于广告守卫开关;编辑消息不触发
         if (
             not is_edit
-            and settings.keyword_deletion_enabled
+            and _kw_delete_on
             and message.chat.type in {"group", "supergroup"}
             and message.sender_chat is None
             and message.from_user is not None
@@ -703,11 +711,11 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 if deleted:
                     return
 
-        if not settings.ad_guard_enabled:
+        if not _ad_guard_on:
             return
         if (
             not is_edit
-            and settings.keyword_reply_enabled
+            and _kw_reply_on
             and message.chat.type in {"group", "supergroup"}
             and message.sender_chat is None
             and message.from_user is not None
@@ -724,10 +732,10 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                         if kw_cooldown is not None
                         else settings.keyword_reply_cooldown_seconds
                     ),
-                    ttl=settings.message_ttl_seconds,
+                    ttl=_msg_ttl,
                 )
 
-        if not settings.ad_guard_enabled:
+        if not _ad_guard_on:
             return
 
         sender_chat = message.sender_chat
@@ -747,7 +755,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     bot,
                     chat_id=message.chat.id,
                     text="⚠️ 本群禁止使用频道身份发言，请改用个人账号。",
-                    ttl=settings.message_ttl_seconds,
+                    ttl=_msg_ttl,
                 )
             except TelegramBadRequest as exc:
                 logger.warning(
@@ -970,7 +978,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 bot,
                 chat_id=case.chat_id,
                 text=confirmation_text,
-                ttl=settings.message_ttl_seconds,
+                ttl=resolve_chat(settings, case.chat_id, "message_ttl_seconds"),
                 disable_web_page_preview=True,
             )
             await store.delete_ad_deletion(review_id)
@@ -1179,7 +1187,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             bot,
             chat_id=context.chat_id,
             text=notice,
-            ttl=settings.message_ttl_seconds,
+            ttl=resolve_chat(settings, context.chat_id, "message_ttl_seconds"),
             disable_web_page_preview=True,
         )
         await callback.answer("已封禁该用户")

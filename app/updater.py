@@ -1,0 +1,463 @@
+"""版本检查与自助更新。
+
+- check_latest_release(): 调 GitHub Releases API 拿最新版本与中文更新日志。
+- run_update(): 更新到最新 Release 并准备重启：
+  - git 部署：`git pull --ff-only` + `pip install -r requirements.txt`
+  - 非 git 部署：下载 Release 源码压缩包，备份现有代码后覆盖（保留 data/、.env、ssl/）
+  成功后由调用方触发进程重启（os.execv 自我替换）。
+- run_rollback(): 回滚到更新前状态（git reset --hard / 还原代码备份）后重启。
+- 更新前自动备份 data/ 目录到 backups/（保留最近 5 份）。
+"""
+from __future__ import annotations
+
+import asyncio
+import io
+import json
+import logging
+import os
+import shutil
+import sys
+import tarfile
+import tempfile
+import time
+import zipfile
+from pathlib import Path
+from typing import Any, Optional
+
+import aiohttp
+
+from .version import APP_VERSION, github_repo
+
+logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BACKUPS_DIR = PROJECT_ROOT / "backups"
+UPDATE_STATE_FILE = PROJECT_ROOT / "data" / "update_state.json"
+GITHUB_API = "https://api.github.com"
+_HTTP_TIMEOUT = aiohttp.ClientTimeout(total=15)
+_DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=300)
+_MAX_BACKUPS = 5
+
+# 覆盖代码 / 打快照时跳过的目录与文件
+_PRESERVE_NAMES = {"data", ".env", "ssl", ".venv", "venv", ".git", "backups", "__pycache__"}
+
+
+def parse_version(text: str) -> tuple[int, ...]:
+    """把 'v1.2.3' / '1.2.3' 解析为可比较的元组；解析失败返回 (0,)。"""
+    cleaned = text.strip().lstrip("vV")
+    parts: list[int] = []
+    for piece in cleaned.split("."):
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        if digits == "":
+            break
+        parts.append(int(digits))
+    return tuple(parts) if parts else (0,)
+
+
+def is_newer(latest: str, current: str) -> bool:
+    a, b = parse_version(latest), parse_version(current)
+    length = max(len(a), len(b))
+    a += (0,) * (length - len(a))
+    b += (0,) * (length - len(b))
+    return a > b
+
+
+def is_git_deploy() -> bool:
+    return (PROJECT_ROOT / ".git").exists()
+
+
+def _github_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": f"tg-group-guard/{APP_VERSION}",
+    }
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+async def check_latest_release(repo: Optional[str] = None) -> dict[str, Any]:
+    """返回版本比对快照；任何失败都体现在 error 字段，不抛异常。"""
+    repo = repo or github_repo()
+    result: dict[str, Any] = {
+        "current": APP_VERSION,
+        "latest": None,
+        "update_available": False,
+        "changelog": "",
+        "release_url": None,
+        "tarball_url": None,
+        "published_at": None,
+        "repo": repo,
+        "deploy_method": "git" if is_git_deploy() else "tarball",
+        "checked_at": int(time.time()),
+        "error": None,
+    }
+    url = f"{GITHUB_API}/repos/{repo}/releases/latest"
+    try:
+        async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
+            async with session.get(url, headers=_github_headers()) as resp:
+                if resp.status == 404:
+                    result["error"] = "仓库还没有发布任何 Release"
+                    return result
+                if resp.status == 403:
+                    result["error"] = "GitHub API 限流，稍后再试（可配置 GITHUB_TOKEN 提高限额）"
+                    return result
+                if resp.status != 200:
+                    result["error"] = f"GitHub API 返回 HTTP {resp.status}"
+                    return result
+                data = await resp.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        result["error"] = f"无法连接 GitHub：{exc.__class__.__name__}"
+        return result
+    except ValueError:
+        result["error"] = "GitHub 返回了无法解析的数据"
+        return result
+
+    tag = str(data.get("tag_name") or "").strip()
+    if not tag:
+        result["error"] = "最新 Release 缺少 tag_name"
+        return result
+    result["latest"] = tag
+    result["changelog"] = str(data.get("body") or "").strip()
+    result["release_url"] = data.get("html_url")
+    result["tarball_url"] = data.get("tarball_url")
+    result["published_at"] = data.get("published_at")
+    result["update_available"] = is_newer(tag, APP_VERSION)
+    return result
+
+
+# ===== 备份 =====
+
+def _prune_backups(pattern: str) -> None:
+    backups = sorted(BACKUPS_DIR.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in backups[_MAX_BACKUPS:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
+def backup_data_dir(log: list[str]) -> Optional[Path]:
+    """把 data/ 打包到 backups/data-<ts>.zip；无 data 目录时跳过。"""
+    data_dir = PROJECT_ROOT / "data"
+    if not data_dir.exists():
+        return None
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    target = BACKUPS_DIR / f"data-{ts}.zip"
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
+        for file in data_dir.rglob("*"):
+            if file.is_file():
+                zf.write(file, file.relative_to(PROJECT_ROOT))
+    log.append(f"已备份 data/ → {target.name}")
+    _prune_backups("data-*.zip")
+    return target
+
+
+def backup_code_snapshot(log: list[str]) -> Path:
+    """非 git 部署时，更新前给现有代码打快照，供回滚还原。"""
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    target = BACKUPS_DIR / f"code-{ts}.zip"
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
+        for file in PROJECT_ROOT.rglob("*"):
+            if not file.is_file():
+                continue
+            rel = file.relative_to(PROJECT_ROOT)
+            if any(part in _PRESERVE_NAMES for part in rel.parts):
+                continue
+            zf.write(file, rel)
+    log.append(f"已备份现有代码 → {target.name}")
+    _prune_backups("code-*.zip")
+    return target
+
+
+# ===== 更新状态（供回滚） =====
+
+def read_update_state() -> Optional[dict[str, Any]]:
+    try:
+        raw = json.loads(UPDATE_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def _write_update_state(state: dict[str, Any]) -> None:
+    UPDATE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    UPDATE_STATE_FILE.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+async def _git_current_commit() -> Optional[str]:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "rev-parse", "HEAD",
+            cwd=str(PROJECT_ROOT),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await proc.communicate()
+        if proc.returncode == 0:
+            return out.decode().strip() or None
+    except OSError:
+        pass
+    return None
+
+
+# ===== 命令执行 =====
+
+async def _run_cmd(args: list[str], log: list[str]) -> tuple[int, str]:
+    """在事件循环里跑子进程，返回 (returncode, 输出摘要)。"""
+    log.append(f"$ {' '.join(args)}")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            cwd=str(PROJECT_ROOT),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            log.append("（命令超时，已终止）")
+            return -1, "timeout"
+        text = (out or b"").decode("utf-8", errors="replace").strip()
+        if text:
+            log.append(text[-3000:])
+        return proc.returncode or 0, text
+    except OSError as exc:
+        log.append(f"无法执行命令：{exc}")
+        return -1, str(exc)
+
+
+async def _pip_install(log: list[str]) -> bool:
+    requirements = PROJECT_ROOT / "requirements.txt"
+    if not requirements.exists():
+        return True
+    code, _ = await _run_cmd(
+        [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], log
+    )
+    return code == 0
+
+
+# ===== 压缩包更新 =====
+
+def _safe_extract_tar(data: bytes, dest: Path, log: list[str]) -> Path:
+    """解压 GitHub tarball（内含一层 <repo>-<sha>/ 目录），返回该根目录。"""
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
+        members = tf.getmembers()
+        if not members:
+            raise RuntimeError("Release 压缩包为空")
+        root_name = members[0].name.split("/")[0]
+        for member in members:
+            # 防路径穿越
+            member_path = (dest / member.name).resolve()
+            if not str(member_path).startswith(str(dest.resolve())):
+                raise RuntimeError("压缩包包含非法路径，已中止")
+        tf.extractall(dest, filter="data")
+    return dest / root_name
+
+
+def _copy_code_over(src_root: Path, log: list[str]) -> int:
+    """把解压出的代码覆盖到项目目录，跳过保留目录。返回复制文件数。"""
+    count = 0
+    for file in src_root.rglob("*"):
+        if not file.is_file():
+            continue
+        rel = file.relative_to(src_root)
+        if any(part in _PRESERVE_NAMES for part in rel.parts):
+            continue
+        target = PROJECT_ROOT / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(file, target)
+        count += 1
+    log.append(f"已覆盖 {count} 个代码文件（data/、.env、ssl/ 等已保留）")
+    return count
+
+
+async def _download_tarball(url: str, log: list[str]) -> bytes:
+    log.append(f"正在下载 Release 源码包：{url}")
+    async with aiohttp.ClientSession(timeout=_DOWNLOAD_TIMEOUT) as session:
+        async with session.get(url, headers=_github_headers()) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"下载源码包失败：HTTP {resp.status}")
+            return await resp.read()
+
+
+# ===== 更新 / 回滚 =====
+
+async def run_update(status: dict[str, Any], release: Optional[dict[str, Any]] = None) -> bool:
+    """执行更新，进度写入 status dict。成功返回 True（调用方随后重启）。"""
+    log: list[str] = status.setdefault("log", [])
+    method = "git" if is_git_deploy() else "tarball"
+    status["method"] = method
+
+    # 1) 更新前备份 data/
+    try:
+        backup_data_dir(log)
+    except OSError as exc:
+        log.append(f"⚠️ data/ 备份失败（继续更新）：{exc}")
+
+    if method == "git":
+        prev_commit = await _git_current_commit()
+        status["state"] = "pulling"
+        code, _ = await _run_cmd(["git", "pull", "--ff-only"], log)
+        if code != 0:
+            status["state"] = "failed"
+            status["error"] = (
+                "git pull 失败：本地可能有未提交改动或产生了分叉，"
+                "请在服务器上手动处理（git status 查看）后重试。"
+            )
+            return False
+        _write_update_state(
+            {
+                "updated_at": int(time.time()),
+                "from_version": APP_VERSION,
+                "to_version": (release or {}).get("latest"),
+                "method": "git",
+                "git_prev_commit": prev_commit,
+            }
+        )
+    else:
+        tarball_url = (release or {}).get("tarball_url")
+        if not tarball_url:
+            status["state"] = "failed"
+            status["error"] = "该 Release 没有可用的源码包下载地址。"
+            return False
+        status["state"] = "downloading"
+        try:
+            payload = await _download_tarball(tarball_url, log)
+        except (RuntimeError, aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            status["state"] = "failed"
+            status["error"] = f"下载更新包失败：{exc}"
+            return False
+        try:
+            snapshot = backup_code_snapshot(log)
+        except OSError as exc:
+            status["state"] = "failed"
+            status["error"] = f"更新前备份现有代码失败：{exc}"
+            return False
+        status["state"] = "installing"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                src_root = _safe_extract_tar(payload, Path(tmp), log)
+                _copy_code_over(src_root, log)
+        except (RuntimeError, tarfile.TarError, OSError) as exc:
+            status["state"] = "failed"
+            status["error"] = f"解压或覆盖代码失败：{exc}"
+            return False
+        _write_update_state(
+            {
+                "updated_at": int(time.time()),
+                "from_version": APP_VERSION,
+                "to_version": (release or {}).get("latest"),
+                "method": "tarball",
+                "code_backup": str(snapshot),
+            }
+        )
+
+    status["state"] = "installing"
+    if not await _pip_install(log):
+        status["state"] = "failed"
+        status["error"] = "依赖安装失败，请检查上方日志后手动执行 pip install -r requirements.txt。"
+        return False
+
+    status["state"] = "ready_to_restart"
+    return True
+
+
+async def run_rollback(status: dict[str, Any]) -> bool:
+    """按 data/update_state.json 记录回滚到更新前状态。成功返回 True。"""
+    log: list[str] = status.setdefault("log", [])
+    state = read_update_state()
+    if not state:
+        status["state"] = "failed"
+        status["error"] = "没有找到可回滚的更新记录。"
+        return False
+
+    if state.get("method") == "git":
+        prev = state.get("git_prev_commit")
+        if not prev:
+            status["state"] = "failed"
+            status["error"] = "更新记录中缺少回滚目标提交。"
+            return False
+        status["state"] = "rolling_back"
+        code, _ = await _run_cmd(["git", "reset", "--hard", prev], log)
+        if code != 0:
+            status["state"] = "failed"
+            status["error"] = "git 回滚失败，请在服务器上手动执行 git reset --hard。"
+            return False
+    else:
+        backup = state.get("code_backup")
+        if not backup or not Path(backup).exists():
+            status["state"] = "failed"
+            status["error"] = "代码备份文件不存在，无法自动回滚。"
+            return False
+        status["state"] = "rolling_back"
+        try:
+            with zipfile.ZipFile(backup) as zf:
+                for name in zf.namelist():
+                    target = (PROJECT_ROOT / name).resolve()
+                    if not str(target).startswith(str(PROJECT_ROOT)):
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(name) as src, target.open("wb") as dst:
+                        shutil.copyfileobj(src, dst)
+            log.append(f"已从 {Path(backup).name} 还原代码")
+        except (OSError, zipfile.BadZipFile) as exc:
+            status["state"] = "failed"
+            status["error"] = f"还原代码备份失败：{exc}"
+            return False
+
+    if not await _pip_install(log):
+        log.append("⚠️ 依赖安装失败，回滚后如启动异常请手动执行 pip install -r requirements.txt")
+
+    try:
+        UPDATE_STATE_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+    status["state"] = "ready_to_restart"
+    return True
+
+
+def schedule_shutdown(delay_seconds: float = 1.5, exit_code: int = 0) -> None:
+    """延迟后退出进程（用于管理员主动关停）。"""
+
+    async def _shutdown() -> None:
+        await asyncio.sleep(delay_seconds)
+        logger.warning("管理员请求关停服务，进程即将退出 (exit=%s)", exit_code)
+        os._exit(exit_code)
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_shutdown())
+    except RuntimeError:  # pragma: no cover
+        import threading
+
+        threading.Timer(delay_seconds, lambda: os._exit(exit_code)).start()
+
+
+def schedule_restart(delay_seconds: float = 2.0) -> None:
+    """延迟后用 os.execv 替换当前进程，实现自我重启。
+
+    延迟是为了让 HTTP 响应先送回浏览器。os.execv 要求进程以
+    `python -m app.main` 或脚本方式启动；sys.argv 原样保留。
+    """
+
+    async def _restart() -> None:
+        await asyncio.sleep(delay_seconds)
+        logger.info("正在重启进程：%s %s", sys.executable, sys.argv)
+        # flush 日志后 exec；Windows / Linux 均支持 os.execv
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_restart())
+    except RuntimeError:  # pragma: no cover - 非事件循环环境
+        import threading
+
+        threading.Timer(delay_seconds, lambda: os.execv(sys.executable, [sys.executable] + sys.argv)).start()

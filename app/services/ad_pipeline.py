@@ -48,7 +48,10 @@ class AdPipeline:
                 self._metrics.set_llm_in_flight(self._in_flight)
             start = time.monotonic()
             try:
-                flagged, confidence = await check_advertisement(content, self._settings)
+                chat_id = message.chat.id if message is not None else None
+                flagged, confidence = await check_advertisement(
+                    content, self._settings, chat_id=chat_id
+                )
             finally:
                 elapsed = time.monotonic() - start
                 self._in_flight -= 1

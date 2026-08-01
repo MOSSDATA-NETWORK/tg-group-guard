@@ -70,6 +70,8 @@ class Settings:
     keyword_reply_cooldown_seconds: int
     keyword_deletion_enabled: bool
     keyword_deletion_rules_file: Optional[Path]
+    update_check_enabled: bool
+    update_check_interval_seconds: int
 
 
 def _mask_secret(value: Optional[str]) -> str:
@@ -152,6 +154,10 @@ def describe_effective_config(settings: "Settings") -> dict:
         },
         "log_level": settings.log_level,
         "warn_limit": settings.warn_limit,
+        "update_check": {
+            "enabled": settings.update_check_enabled,
+            "interval_seconds": settings.update_check_interval_seconds,
+        },
         "bot_token": _mask_secret(settings.bot_token),
     }
 
@@ -271,6 +277,10 @@ def load_settings() -> Settings:
     keyword_deletion_rules_file = _resolve_optional_path(
         _read_env("KEYWORD_DELETION_RULES_FILE", "config/keyword_deletions.json")
     )
+    update_check_enabled = _read_bool(_read_env("UPDATE_CHECK_ENABLED", "true"), True)
+    update_check_interval_seconds = max(
+        int(_read_env("UPDATE_CHECK_INTERVAL_SECONDS", "21600")), 300
+    )
 
     database_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -343,4 +353,6 @@ def load_settings() -> Settings:
         keyword_reply_cooldown_seconds=keyword_reply_cooldown_seconds,
         keyword_deletion_enabled=keyword_deletion_enabled,
         keyword_deletion_rules_file=keyword_deletion_rules_file,
+        update_check_enabled=update_check_enabled,
+        update_check_interval_seconds=update_check_interval_seconds,
     )

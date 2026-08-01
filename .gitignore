@@ -30,6 +30,7 @@ data/*
 !data/.gitkeep
 ssl/*
 !ssl/.gitkeep
+backups/
 
 # IDE
 .idea/

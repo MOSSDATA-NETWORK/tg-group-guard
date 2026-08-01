@@ -15,7 +15,9 @@ from .bot_components.scoring import RedisDailyScoreManager
 from .bot_components.verification import run_cleanup_scheduler
 from .config import describe_effective_config, load_settings
 from .metrics import build_metrics
+from .runtime_settings import apply_overrides
 from .storage import VerificationStore
+from .updater import check_latest_release
 from .web import create_web_app
 
 
@@ -44,6 +46,10 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     settings = load_settings()
+    # 应用管理后台保存的运行时配置覆盖（data/admin_overrides.json）
+    skipped_overrides = apply_overrides(settings)
+    if skipped_overrides:
+        logger.warning("以下覆盖配置无效已被忽略：%s", ", ".join(skipped_overrides))
     level_name = settings.log_level.upper()
     level = getattr(logging, level_name, logging.INFO)
     logging.basicConfig(level=level, format='%(asctime)s %(levelname)s [%(name)s] %(message)s')
@@ -81,6 +87,26 @@ async def main() -> None:
     web_app.state.redis_client = redis_client
     web_app.state.score_manager = score_manager
     web_app.state.metrics = metrics if settings.enable_metrics else None
+    web_app.state.version_info = None
+    web_app.state.update_status = {"state": "idle", "log": [], "error": None}
+
+    async def run_update_checker() -> None:
+        """启动后立即检查一次，之后按配置间隔定时与 GitHub Release 比对版本。"""
+        while True:
+            try:
+                info = await check_latest_release()
+                web_app.state.version_info = info
+                if info.get("error"):
+                    logger.warning("版本检查失败：%s", info["error"])
+                elif info.get("update_available"):
+                    logger.info(
+                        "发现新版本：%s（当前 %s），可在管理后台「系统设置」页一键更新",
+                        info["latest"],
+                        info["current"],
+                    )
+            except Exception as exc:  # pragma: no cover - 防御性兜底
+                logger.warning("版本检查异常：%r", exc)
+            await asyncio.sleep(settings.update_check_interval_seconds)
 
     async def run_web_server(host: str) -> None:
         ssl_kwargs = {}
@@ -150,6 +176,11 @@ async def main() -> None:
     bot_task = asyncio.create_task(run_polling_with_retry())
     web_task = asyncio.create_task(run_web())
     cleanup_task = asyncio.create_task(run_cleanup_scheduler(bot, store, settings.cleanup_interval_seconds))
+    update_task = (
+        asyncio.create_task(run_update_checker())
+        if settings.update_check_enabled
+        else None
+    )
     try:
         await asyncio.gather(bot_task, web_task)
     except asyncio.CancelledError:
@@ -159,12 +190,17 @@ async def main() -> None:
     bot_task.cancel()
     web_task.cancel()
     cleanup_task.cancel()
+    if update_task is not None:
+        update_task.cancel()
     with suppress(asyncio.CancelledError):
         await bot_task
     with suppress(asyncio.CancelledError):
         await web_task
     with suppress(asyncio.CancelledError):
         await cleanup_task
+    if update_task is not None:
+        with suppress(asyncio.CancelledError):
+            await update_task
     await store.close()
     await bot.session.close()
     await redis_client.aclose()

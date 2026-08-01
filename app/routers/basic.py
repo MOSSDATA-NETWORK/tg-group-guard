@@ -6,6 +6,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from ..bot_components.messaging import send_message_with_ttl, schedule_message_auto_delete
 from ..bot_components.permissions import is_authorized_admin
+from ..chat_settings import resolve_chat
 from ..services.dependencies import BotServices
 
 
@@ -15,7 +16,11 @@ def build_basic_router(services: BotServices) -> Router:
     store = services.store
 
     async def handle_private_verification_start(message: Message, token: str) -> None:
-        private_ttl = None if message.chat.type == "private" else settings.message_ttl_seconds
+        private_ttl = (
+            None
+            if message.chat.type == "private"
+            else resolve_chat(settings, message.chat.id, "message_ttl_seconds")
+        )
 
         if message.from_user is None or message.from_user.is_bot:
             await send_message_with_ttl(
@@ -62,8 +67,9 @@ def build_basic_router(services: BotServices) -> Router:
 
     @router.message(CommandStart())
     async def handle_start(message: Message, bot: Bot) -> None:
+        chat_ttl = resolve_chat(settings, message.chat.id, "message_ttl_seconds")
         if message.chat.type in {"group", "supergroup"}:
-            schedule_message_auto_delete(bot, message, settings.message_ttl_seconds)
+            schedule_message_auto_delete(bot, message, chat_ttl)
 
         payload = None
         if message.text:
@@ -90,7 +96,7 @@ def build_basic_router(services: BotServices) -> Router:
                 bot,
                 chat_id=message.chat.id,
                 text="⚠️ 此机器人仅限管理员使用。",
-                ttl=settings.message_ttl_seconds,
+                ttl=chat_ttl,
             )
             return
 
@@ -98,7 +104,7 @@ def build_basic_router(services: BotServices) -> Router:
             bot,
             chat_id=message.chat.id,
             text="我是 Telegram-group-guard 群管小助手",
-            ttl=settings.message_ttl_seconds,
+            ttl=chat_ttl,
         )
 
     return router

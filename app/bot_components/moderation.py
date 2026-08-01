@@ -8,6 +8,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message
 
 from ..config import Settings
+from ..chat_settings import resolve_chat
 from .messaging import send_message_with_ttl
 from .scoring import RedisDailyScoreManager
 
@@ -115,7 +116,7 @@ async def handle_low_score_violation(
         bot,
         chat_id=chat_id,
         text=notice,
-        ttl=settings.message_ttl_seconds,
+        ttl=resolve_chat(settings, chat_id, "message_ttl_seconds"),
         disable_web_page_preview=True,
     )
 

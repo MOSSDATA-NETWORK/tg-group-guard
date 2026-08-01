@@ -77,6 +77,20 @@ up - 提升目标成员为管理员
 
 ### 更新教程
 
+**方式一：管理后台一键更新（推荐）**
+
+打开 `/admin` →「系统设置」页，顶部版本卡片会显示当前版本与 GitHub 最新版本；
+发现新版本时展示中文更新日志，点击「立即更新并重启」即可自动更新并重启服务，
+页面会在服务恢复后自动刷新。
+
+- git 克隆部署：执行 `git pull --ff-only` + 安装依赖；本地有未提交改动时会提示手动处理。
+- 非 git 部署（直接上传代码）：自动下载 Release 源码包覆盖代码，`data/`、`.env`、`ssl/` 会保留。
+- 更新前自动备份 `data/` 与代码快照到 `backups/`（保留最近 5 份），更新异常可一键回滚。
+
+> 发布新版本时请在 GitHub Release 正文中用中文写更新说明，后台会直接展示；同时维护根目录 `CHANGELOG.md`。
+
+**方式二：手动更新**
+
 ```bash
 # 1. 拉取最新代码
 git pull origin main
@@ -206,6 +220,15 @@ diff .env.example .env
 | `KEYWORD_DELETION_ENABLED` | `false` | 总开关；命中规则后自动删除用户消息 |
 | `KEYWORD_DELETION_RULES_FILE` | `config/keyword_deletions.json` | 规则文件，支持热重载；可在 Admin WebUI 在线编辑 |
 
+### 版本检查与自助更新
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `UPDATE_CHECK_ENABLED` | `true` | 定时与 GitHub Release 比对版本号，有新版本时在「系统设置」页提示 |
+| `UPDATE_CHECK_INTERVAL_SECONDS` | `21600` | 检查间隔（秒），默认 6 小时，下限 300 |
+| `GITHUB_REPO` | `MOSSDATA-NETWORK/tg-group-guard` | 比对目标仓库（`owner/repo`），fork 后改成自己的 |
+| `GITHUB_TOKEN` | 空 | 可选；GitHub API 令牌，避免匿名限流（60 次/小时） |
+
 ### 日志
 
 | 变量 | 默认 | 说明 |
@@ -285,6 +308,21 @@ diff .env.example .env
 2. 设置 `ALLOWED_CHAT_IDS`
 3. 在 [@BotFather](https://t.me/BotFather) 执行 `/setdomain`，绑定同一域名
 4. `ADMIN_WEB_ENABLED=true` 后重启，访问 `{VERIFY_BASE_URL}/admin`
+
+后台包含：统计概览、进群/广告/封禁日志、关键词回复与删除规则编辑器，以及「系统设置」页：
+
+- **系统设置**：全部配置参数可视化编辑，保存后立即生效并持久化到 `data/admin_overrides.json`
+  （优先级高于 `.env`，重启后仍会应用）；标注「需重启」的项保存后可一键重启服务。
+- **按群差异化配置**：广告守卫开关/判定阈值/封禁、关键词回复与删除开关、消息自动删除 TTL、
+  警告上限共 7 项可对单个群覆盖，持久化到 `data/chat_overrides.json`，未覆盖项跟随全局。
+- **版本更新**：定时与 GitHub Release 比对版本号，有新版本时展示中文更新日志，一键更新并自动重启。
+  git 克隆部署走 `git pull`；直接上传代码的部署会自动改用「下载 Release 源码包覆盖」方式，
+  `data/`、`.env`、`ssl/` 均会保留。更新前自动备份 `data/` 与代码（`backups/`，保留最近 5 份），
+  更新后如发现异常可在版本卡片一键「回滚到更新前版本」。
+- **关停服务**：危险操作区的红色按钮，双重确认后关停整个进程（systemd/pm2 守护下会被自动拉起）。
+- **管理通知**：配置修改、更新/回滚/关停等操作会向所有 `ALLOWED_CHAT_IDS` 群发送 Telegram 通知。
+- **防误关提醒**：关闭/离开后台页面时浏览器会弹出确认提示，可在页面右上角「离开提醒」开关关闭。
+- 密钥类字段（Bot Token、API Key）只显示「已设置」，留空保存即保持原值不变。
 
 ## HTTPS（可选）
 

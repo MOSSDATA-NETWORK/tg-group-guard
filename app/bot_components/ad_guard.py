@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple, TYPE_CHECKING
 import aiohttp
 
 from ..ad_guard_rules import get_heuristic_pattern, render_prompt_message
+from ..chat_settings import resolve_chat
 
 from .constants import MESSAGE_HISTORY_LIMIT
 from .history import HistoryEntry
@@ -58,18 +59,32 @@ def _heuristic_match_text(text: str) -> bool:
     return bool(pattern.search(normalized))
 
 
-async def check_advertisement(content: str, settings: "Settings") -> Tuple[bool, Optional[float]]:
-    if not settings.ad_guard_enabled:
+async def check_advertisement(
+    content: str,
+    settings: "Settings",
+    chat_id: Optional[int] = None,
+) -> Tuple[bool, Optional[float]]:
+    if chat_id is not None:
+        if not resolve_chat(settings, chat_id, "ad_guard_enabled"):
+            return (False, None)
+    elif not settings.ad_guard_enabled:
         return (False, None)
     provider = getattr(settings, "ad_guard_provider", "ollama")
     if provider == "openai":
-        return await _check_advertisement_openai(content, settings)
-    return await _check_advertisement_ollama(content, settings)
+        return await _check_advertisement_openai(content, settings, chat_id=chat_id)
+    return await _check_advertisement_ollama(content, settings, chat_id=chat_id)
+
+
+def _effective_threshold(settings: "Settings", chat_id: Optional[int]) -> float:
+    if chat_id is None:
+        return settings.ad_guard_threshold
+    return resolve_chat(settings, chat_id, "ad_guard_threshold")
 
 
 async def _check_advertisement_ollama(
     content: str,
     settings: "Settings",
+    chat_id: Optional[int] = None,
 ) -> Tuple[bool, Optional[float]]:
     if not settings.ollama_endpoint:
         logger.warning("启用了 Ollama 守卫但未配置 OLLAMA_ENDPOINT")
@@ -136,7 +151,7 @@ async def _check_advertisement_ollama(
     except (TypeError, ValueError):
         confidence = None
 
-    if confidence is not None and confidence < settings.ad_guard_threshold:
+    if confidence is not None and confidence < _effective_threshold(settings, chat_id):
         flagged = False
 
     return (flagged, confidence)
@@ -145,6 +160,7 @@ async def _check_advertisement_ollama(
 async def _check_advertisement_openai(
     content: str,
     settings: "Settings",
+    chat_id: Optional[int] = None,
 ) -> Tuple[bool, Optional[float]]:
     if not settings.openai_api_key:
         logger.warning("启用了 OpenAI 兼容守卫但未配置 OPENAI_API_KEY")
@@ -225,7 +241,7 @@ async def _check_advertisement_openai(
     except (TypeError, ValueError):
         confidence = None
 
-    if confidence is not None and confidence < settings.ad_guard_threshold:
+    if confidence is not None and confidence < _effective_threshold(settings, chat_id):
         flagged = False
 
     return (flagged, confidence)

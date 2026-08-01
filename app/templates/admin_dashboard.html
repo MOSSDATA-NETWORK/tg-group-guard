@@ -874,6 +874,67 @@
         .kw-row { grid-template-columns: 1fr; }
         .kw-row textarea { grid-column: auto; }
       }
+
+      /* ===== 系统设置页 ===== */
+      .settings-grid { display: grid; gap: 16px; }
+      .settings-group { padding: 16px 18px; }
+      .settings-group h3 { margin: 0 0 4px; font-size: 15px; }
+      .settings-group .group-sub { margin: 0 0 14px; font-size: 12px; color: var(--color-text-muted); }
+      .settings-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px 20px; }
+      .setting-item { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+      .setting-item .setting-label { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+      .setting-item .setting-help { font-size: 12px; color: var(--color-text-muted); line-height: 1.5; }
+      .setting-item input[type="text"], .setting-item input[type="number"], .setting-item input[type="password"], .setting-item select {
+        width: 100%; min-width: 0;
+      }
+      .setting-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--color-primary); }
+      .setting-check { flex-direction: row !important; align-items: center; gap: 8px !important; padding-top: 18px; }
+      .restart-badge {
+        font-size: 11px; padding: 1px 7px; border-radius: 999px;
+        background: var(--color-warn-bg); color: var(--color-warn); border: 1px solid #fde68a;
+        white-space: nowrap;
+      }
+      .settings-actions {
+        display: flex; align-items: center; gap: 12px; margin-top: 4px;
+        position: sticky; bottom: 0; padding: 12px 0;
+        background: linear-gradient(to top, var(--color-bg) 70%, transparent);
+      }
+      .settings-actions .meta { color: var(--color-text-muted); font-size: 12px; }
+
+      /* 版本卡片 */
+      .version-card { padding: 16px 18px; display: grid; gap: 12px; }
+      .version-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; font-size: 13px; }
+      .version-row .v-label { color: var(--color-text-muted); }
+      .version-row .v-value { font-weight: 600; font-variant-numeric: tabular-nums; font-family: "Fira Code", ui-monospace, monospace; }
+      .version-status { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--color-border); }
+      .version-status.ok { background: var(--color-success-bg); color: var(--color-success); border-color: #a7f3d0; }
+      .version-status.new { background: var(--color-warn-bg); color: var(--color-warn); border-color: #fde68a; }
+      .version-status.err { background: var(--color-destructive-bg); color: var(--color-destructive); border-color: #fecaca; }
+      .changelog {
+        margin: 0; padding: 12px 14px; border-radius: 10px; max-height: 260px; overflow: auto;
+        background: #f8fbff; border: 1px solid rgba(219, 234, 254, 0.9);
+        font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+        font-family: inherit;
+      }
+      .update-log {
+        margin: 0; padding: 12px 14px; border-radius: 10px; max-height: 220px; overflow: auto;
+        background: #0f172a; color: #e2e8f0; font-size: 12px; line-height: 1.6;
+        font-family: "Fira Code", ui-monospace, monospace; white-space: pre-wrap; word-break: break-all;
+      }
+      .version-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+      button.danger { background: var(--color-destructive); border-color: var(--color-destructive); color: #fff; }
+      button.danger:hover:not(:disabled) { background: var(--color-destructive-hover); }
+      button.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+      button.primary:hover:not(:disabled) { background: var(--color-primary-hover); }
+
+      .leave-guard { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-muted); cursor: pointer; user-select: none; }
+      .leave-guard input { width: 14px; height: 14px; accent-color: var(--color-primary); }
+      .version-badge {
+        font-size: 11px; padding: 2px 8px; border-radius: 999px;
+        background: var(--color-muted-bg); color: var(--color-primary);
+        font-family: "Fira Code", ui-monospace, monospace;
+      }
+      .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
     </style>
   </head>
   <body>
@@ -891,6 +952,10 @@
           </div>
         </div>
         <div class="header-right">
+          <span class="version-badge" id="version-badge" title="当前版本">v{{ app_version }}</span>
+          <label class="leave-guard" title="关闭或离开本页面时弹出浏览器确认提示，防止误操作">
+            <input type="checkbox" id="leave-guard-toggle" checked /> 离开提醒
+          </label>
           <span class="who">登录：<strong>{{ admin.name }}</strong> ({{ admin.user_id }})</span>
           <form id="logout-form" onsubmit="return doLogout(event)">
             <button class="secondary" type="submit">退出登录</button>
@@ -925,6 +990,11 @@
         <div class="nav-item" data-target="keyword-deletions" role="button" tabindex="0">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
           关键词删除
+        </div>
+        <div class="nav-item" data-target="settings" role="button" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          系统设置
+          <span class="count" id="settings-update-count" hidden>!</span>
         </div>
         <div class="footnote">
         </div>
@@ -1273,6 +1343,74 @@
             <button type="button" id="kd-refresh">重新加载</button>
           </div>
         </section>
+        <section class="panel" id="settings-panel">
+          <div class="panel-head">
+            <div>
+              <h2>系统设置</h2>
+              <p>全部配置参数集中管理。保存后立即生效；标注「需重启」的项在下次重启后生效。</p>
+            </div>
+          </div>
+
+          <div class="card version-card">
+            <div class="version-row">
+              <span><span class="v-label">当前版本：</span><span class="v-value" id="ver-current">—</span></span>
+              <span><span class="v-label">最新版本：</span><span class="v-value" id="ver-latest">—</span></span>
+              <span class="version-status" id="ver-status">检查中…</span>
+              <span class="meta" id="ver-checked-at"></span>
+            </div>
+            <div id="ver-changelog-wrap" hidden>
+              <div class="field-label" style="margin-bottom:6px;">更新日志</div>
+              <pre class="changelog" id="ver-changelog"></pre>
+            </div>
+            <div class="version-actions">
+              <button type="button" class="secondary" id="ver-check">检查更新</button>
+              <button type="button" class="primary" id="ver-update" hidden>立即更新并重启</button>
+              <button type="button" class="danger" id="ver-rollback" hidden>回滚到更新前版本</button>
+              <a id="ver-release-link" href="#" target="_blank" rel="noopener noreferrer" hidden>查看 Release →</a>
+              <span class="meta" id="ver-hint"></span>
+            </div>
+            <pre class="update-log" id="update-log" hidden></pre>
+          </div>
+
+          <div class="settings-grid" id="settings-groups" style="margin-top:16px;"></div>
+
+          <div class="card settings-group" style="margin-top:16px;">
+            <h3>按群差异化配置</h3>
+            <p class="group-sub">对单个群覆盖下列关键参数，未覆盖的项跟随上方全局配置，保存后立即生效。</p>
+            <div class="kw-toolbar" style="margin-bottom:14px;">
+              <div class="field">
+                <span class="field-label" id="cs-chat-label">选择群</span>
+                <button type="button" class="combobox" id="cs-chat-btn"
+                  role="combobox" aria-haspopup="listbox" aria-expanded="false"
+                  aria-labelledby="cs-chat-label" data-value="">
+                  <span class="value">请选择群</span>
+                  <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <ul class="listbox" id="cs-chat-list" role="listbox" aria-labelledby="cs-chat-label" hidden></ul>
+              </div>
+              <span class="meta" id="cs-meta"></span>
+            </div>
+            <div class="settings-fields" id="cs-fields"><div class="empty"><p>请先选择要配置的群。</p></div></div>
+            <div class="version-actions" style="margin-top:14px;">
+              <button type="button" class="primary" id="cs-save" disabled>保存该群配置</button>
+              <span class="meta">留空 / 选「跟随全局」即清除该项覆盖</span>
+            </div>
+          </div>
+
+          <div class="card settings-group" style="margin-top:16px; border-color:#fecaca;">
+            <h3 style="color:var(--color-destructive);">危险操作</h3>
+            <p class="group-sub">关停后整个机器人与后台都会停止运行，只能到服务器上手动启动；若使用 systemd/pm2 守护，进程可能被自动拉起。</p>
+            <div class="version-actions">
+              <button type="button" class="danger" id="shutdown-btn">关停服务</button>
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <button type="button" class="primary" id="settings-save">保存设置</button>
+            <button type="button" class="secondary" id="settings-reload">重新加载</button>
+            <span class="meta" id="settings-meta">修改后点击保存即可生效</span>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -1287,6 +1425,27 @@
           </button>
         </div>
         <div id="ad-modal-body"></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="restart-modal" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="restart-modal-title" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 id="restart-modal-title">部分配置需重启后生效</h3>
+          <button type="button" class="modal-close" aria-label="关闭" onclick="closeRestartModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+        <div style="padding: 14px 18px 18px;">
+          <p style="margin: 0 0 10px; font-size: 13px; line-height: 1.7;">
+            以下配置项已保存，但要<strong>重启服务</strong>后才会生效。其余配置已即时生效。
+          </p>
+          <pre class="changelog" id="restart-keys"></pre>
+          <div class="modal-actions">
+            <button type="button" class="secondary" id="restart-later">稍后自行重启</button>
+            <button type="button" class="danger" id="restart-now">立即重启服务</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1726,6 +1885,7 @@
 
       async function doLogout(event) {
         event.preventDefault();
+        leaveGuardBypass = true;
         try {
           await fetch('/admin/logout', {
             method: 'POST',
@@ -1986,7 +2146,7 @@
         row.querySelector('.kw-pattern').hidden = !isPattern;
       });
 
-      const TAB_BY_INDEX = ['overview', 'joins', 'ads', 'bans', 'keywords', 'keyword-deletions'];
+      const TAB_BY_INDEX = ['overview', 'joins', 'ads', 'bans', 'keywords', 'keyword-deletions', 'settings'];
       function activateTab(name, push = true) {
         const target = document.querySelector(`.nav-item[data-target="${name}"]`);
         if (!target) return;
@@ -2142,12 +2302,14 @@
         if (e.key === 'Escape') {
           const modal = document.getElementById('ad-modal');
           if (!modal.hidden) { closeAdModal(); return; }
+          const restartModal = document.getElementById('restart-modal');
+          if (!restartModal.hidden) { closeRestartModal(); return; }
         }
         if (inField) return;
         if (e.key === 'g') {
           const next = e.key === 'g';
           const handler = (ev) => {
-            const idx = '12345'.indexOf(ev.key);
+            const idx = '1234567'.indexOf(ev.key);
             if (idx >= 0) { ev.preventDefault(); activateTab(TAB_BY_INDEX[idx]); }
             document.removeEventListener('keydown', handler, true);
           };
@@ -2303,6 +2465,448 @@
         row.querySelector('.kw-case').hidden = isPattern;
         row.querySelector('.kd-pattern').hidden = !isPattern;
       });
+
+      // ===== 离开页面提醒（防误关） =====
+      let leaveGuardBypass = false;
+      const leaveGuardToggle = document.getElementById('leave-guard-toggle');
+      leaveGuardToggle.checked = localStorage.getItem('kk_leave_guard') !== 'off';
+      leaveGuardToggle.addEventListener('change', () => {
+        localStorage.setItem('kk_leave_guard', leaveGuardToggle.checked ? 'on' : 'off');
+        showToast(leaveGuardToggle.checked ? '已开启离开页面提醒' : '已关闭离开页面提醒');
+      });
+      window.addEventListener('beforeunload', (e) => {
+        if (leaveGuardBypass || !leaveGuardToggle.checked) return;
+        e.preventDefault();
+        e.returnValue = '';
+      });
+
+      // ===== 系统设置：配置表单 =====
+      function settingInputHtml(f) {
+        const id = `set-${f.key}`;
+        const badge = f.restart ? '<span class="restart-badge">需重启</span>' : '';
+        const help = f.help ? `<span class="setting-help">${esc(f.help)}</span>` : '';
+        if (f.kind === 'bool') {
+          return `<div class="setting-item setting-check">
+            <input type="checkbox" id="${id}" data-key="${f.key}"${f.value === 'true' ? ' checked' : ''} />
+            <label for="${id}" class="setting-label">${esc(f.label)} ${badge}</label>
+            ${help}
+          </div>`;
+        }
+        let input;
+        if (f.kind === 'select') {
+          const opts = (f.choices || []).map((c) =>
+            `<option value="${esc(c)}"${c === f.value ? ' selected' : ''}>${esc(c)}</option>`).join('');
+          input = `<select id="${id}" data-key="${f.key}">${opts}</select>`;
+        } else if (f.kind === 'secret') {
+          input = `<input type="password" id="${id}" data-key="${f.key}" value=""
+            placeholder="${f.is_set ? '已设置，留空保持不变' : '未设置'}" autocomplete="new-password" />`;
+        } else {
+          const type = (f.kind === 'int' || f.kind === 'float') ? 'number' : 'text';
+          const step = f.kind === 'float' ? ' step="0.05"' : '';
+          const ph = f.nullable ? ' placeholder="留空表示不启用 / 不设置"' : '';
+          input = `<input type="${type}"${step} id="${id}" data-key="${f.key}" value="${esc(f.value)}"${ph} />`;
+        }
+        return `<div class="setting-item">
+          <label for="${id}" class="setting-label">${esc(f.label)} ${badge}</label>
+          ${input}${help}
+        </div>`;
+      }
+
+      async function loadSettings() {
+        let data;
+        try {
+          const res = await fetch('/admin/api/settings');
+          if (res.status === 401) { location.href = '/admin/login'; return; }
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || '加载失败');
+          }
+          data = await res.json();
+        } catch (err) {
+          showToast(err.message || '设置加载失败', true);
+          return;
+        }
+        document.getElementById('settings-groups').innerHTML = (data.groups || []).map((g) => `
+          <div class="card settings-group">
+            <h3>${esc(g.name)}</h3>
+            <div class="settings-fields">${g.fields.map(settingInputHtml).join('')}</div>
+          </div>`).join('');
+      }
+
+      async function saveSettings() {
+        const adminToggle = document.querySelector('#settings-groups [data-key="ADMIN_WEB_ENABLED"]');
+        if (adminToggle && !adminToggle.checked) {
+          if (!confirm('⚠️ 你正在关闭 Admin 后台！\n\n保存后本管理页面将立即不可用，只能到服务器上修改 data/admin_overrides.json 或 .env 后重启恢复。\n\n确定要继续吗？')) {
+            return;
+          }
+        }
+        const values = {};
+        document.querySelectorAll('#settings-groups [data-key]').forEach((el) => {
+          values[el.dataset.key] = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value;
+        });
+        const btn = document.getElementById('settings-save');
+        btn.disabled = true;
+        try {
+          const res = await fetch('/admin/api/settings', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': getCookie('kk_admin_csrf'),
+            },
+            body: JSON.stringify({ values }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (Array.isArray(data.errors) && data.errors.length) {
+              showToast(`校验失败：${data.errors.join('；')}`, true);
+            } else {
+              showToast(data.detail || '保存失败', true);
+            }
+            return;
+          }
+          document.getElementById('settings-meta').textContent =
+            `上次保存：${new Date().toLocaleTimeString()}`;
+          if (Array.isArray(data.restart_required) && data.restart_required.length) {
+            openRestartModal(data.restart_required);
+          } else if (!data.applied || data.applied.length === 0) {
+            showToast('没有需要保存的改动');
+          } else {
+            showToast(`已保存并生效（${data.applied.length} 项）`);
+          }
+        } catch (err) {
+          showToast(err.message || '保存失败', true);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      // ===== 重启 =====
+      function openRestartModal(keys) {
+        document.getElementById('restart-keys').textContent = keys.join('\n');
+        document.getElementById('restart-modal').hidden = false;
+      }
+      function closeRestartModal() {
+        document.getElementById('restart-modal').hidden = true;
+      }
+      async function restartNow() {
+        closeRestartModal();
+        leaveGuardBypass = true;
+        try {
+          await fetch('/admin/api/restart', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+          });
+        } catch (e) {}
+        waitForRestartAndReload();
+      }
+      function waitForRestartAndReload() {
+        document.getElementById('settings-meta').textContent = '服务重启中…恢复后页面将自动刷新';
+        showToast('服务重启中，请稍候…');
+        setTimeout(() => {
+          const timer = setInterval(async () => {
+            try {
+              const res = await fetch('/healthz', { cache: 'no-store' });
+              if (res.ok) {
+                clearInterval(timer);
+                location.reload();
+              }
+            } catch (e) { /* 尚未恢复，继续等 */ }
+          }, 2000);
+        }, 4000);
+      }
+
+      // ===== 版本检查与一键更新 =====
+      let updatePolling = null;
+
+      function renderVersion(info) {
+        document.getElementById('ver-current').textContent = `v${info.current || '?'}`;
+        document.getElementById('ver-latest').textContent = info.latest || '—';
+        const statusEl = document.getElementById('ver-status');
+        const changelogWrap = document.getElementById('ver-changelog-wrap');
+        const updateBtn = document.getElementById('ver-update');
+        const releaseLink = document.getElementById('ver-release-link');
+        const navBadge = document.getElementById('settings-update-count');
+        statusEl.className = 'version-status';
+        if (info.error) {
+          statusEl.classList.add('err');
+          statusEl.textContent = `检查失败：${info.error}`;
+          changelogWrap.hidden = true;
+          updateBtn.hidden = true;
+          releaseLink.hidden = true;
+          navBadge.hidden = true;
+        } else if (info.update_available) {
+          statusEl.classList.add('new');
+          statusEl.textContent = '有新版本可用';
+          document.getElementById('ver-changelog').textContent =
+            info.changelog || '（该版本未附更新说明）';
+          changelogWrap.hidden = false;
+          updateBtn.hidden = false;
+          updateBtn.textContent = `更新到 ${info.latest} 并重启`;
+          if (info.release_url) {
+            releaseLink.href = info.release_url;
+            releaseLink.hidden = false;
+          }
+          navBadge.hidden = false;
+        } else {
+          statusEl.classList.add('ok');
+          statusEl.textContent = '已是最新版本';
+          changelogWrap.hidden = true;
+          updateBtn.hidden = true;
+          releaseLink.hidden = true;
+          navBadge.hidden = true;
+        }
+        if (info.checked_at) {
+          document.getElementById('ver-checked-at').textContent =
+            `上次检查：${new Date(info.checked_at * 1000).toLocaleString()}`;
+        }
+        const deployLabel = info.deploy_method === 'tarball' ? '压缩包部署' : 'git 部署';
+        document.getElementById('ver-hint').textContent =
+          (info.check_enabled
+            ? `每 ${Math.round((info.check_interval_seconds || 21600) / 3600)} 小时自动检查一次`
+            : '自动检查已关闭（UPDATE_CHECK_ENABLED=false）') + ` · ${deployLabel}`;
+        // 回滚按钮：存在上一次更新记录时显示
+        const rollbackBtn = document.getElementById('ver-rollback');
+        if (info.rollback_available && info.rollback_info) {
+          rollbackBtn.hidden = false;
+          rollbackBtn.title =
+            `回滚 ${info.rollback_info.to_version || '?'} → ${info.rollback_info.from_version || '更新前版本'}`;
+        } else {
+          rollbackBtn.hidden = true;
+        }
+      }
+
+      async function loadVersion() {
+        try {
+          const res = await fetch('/admin/api/version');
+          if (res.status === 401) { location.href = '/admin/login'; return; }
+          if (!res.ok) throw new Error('版本信息加载失败');
+          renderVersion(await res.json());
+        } catch (err) {
+          const statusEl = document.getElementById('ver-status');
+          statusEl.className = 'version-status err';
+          statusEl.textContent = err.message || '版本信息加载失败';
+        }
+      }
+
+      async function checkVersionNow() {
+        const btn = document.getElementById('ver-check');
+        btn.disabled = true;
+        try {
+          const res = await fetch('/admin/api/version/check', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+          });
+          if (!res.ok) throw new Error('检查失败');
+          renderVersion(await res.json());
+          showToast('版本检查完成');
+        } catch (err) {
+          showToast(err.message || '检查失败', true);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      async function startUpdate() {
+        const latest = document.getElementById('ver-latest').textContent;
+        if (!confirm(`确认更新到 ${latest} 吗？\n\n将自动执行 git pull、安装依赖并重启服务，期间服务会短暂中断。`)) {
+          return;
+        }
+        const btn = document.getElementById('ver-update');
+        btn.disabled = true;
+        document.getElementById('ver-rollback').disabled = true;
+        const logEl = document.getElementById('update-log');
+        logEl.hidden = false;
+        logEl.textContent = '正在启动更新…';
+        try {
+          const res = await fetch('/admin/api/update', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.detail || '更新启动失败');
+          pollUpdateStatus();
+        } catch (err) {
+          showToast(err.message || '更新启动失败', true);
+          logEl.hidden = true;
+          btn.disabled = false;
+          document.getElementById('ver-rollback').disabled = false;
+        }
+      }
+
+      function pollUpdateStatus() {
+        if (updatePolling) clearInterval(updatePolling);
+        updatePolling = setInterval(async () => {
+          let st;
+          try {
+            const res = await fetch('/admin/api/update/status', { cache: 'no-store' });
+            if (!res.ok) return;
+            st = await res.json();
+          } catch (e) {
+            // 服务可能正在重启
+            return;
+          }
+          const logEl = document.getElementById('update-log');
+          if (Array.isArray(st.log)) logEl.textContent = st.log.join('\n');
+          if (st.state === 'failed') {
+            clearInterval(updatePolling);
+            updatePolling = null;
+            document.getElementById('ver-update').disabled = false;
+            document.getElementById('ver-rollback').disabled = false;
+            logEl.textContent += `\n\n❌ ${st.error || '更新失败'}`;
+            showToast(st.error || '更新失败', true);
+          } else if (st.state === 'restarting') {
+            clearInterval(updatePolling);
+            updatePolling = null;
+            logEl.textContent += '\n\n✅ 更新完成，服务重启中…';
+            leaveGuardBypass = true;
+            waitForRestartAndReload();
+          }
+        }, 1500);
+      }
+
+      async function startRollback() {
+        if (!confirm('确认回滚到更新前的版本吗？\n\n将还原代码并自动重启服务，期间服务会短暂中断。')) {
+          return;
+        }
+        const btn = document.getElementById('ver-rollback');
+        btn.disabled = true;
+        const logEl = document.getElementById('update-log');
+        logEl.hidden = false;
+        logEl.textContent = '正在回滚…';
+        try {
+          const res = await fetch('/admin/api/rollback', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.detail || '回滚启动失败');
+          pollUpdateStatus();
+        } catch (err) {
+          showToast(err.message || '回滚启动失败', true);
+          logEl.hidden = true;
+          btn.disabled = false;
+        }
+      }
+
+      // ===== 关停服务 =====
+      async function shutdownService() {
+        if (!confirm('⚠️ 确认要关停整个服务吗？\n\n机器人与管理后台都将停止运行。')) return;
+        if (!confirm('再次确认：关停后只能到服务器上手动启动服务。\n（systemd/pm2 守护下进程可能被自动拉起）\n\n确定关停吗？')) return;
+        leaveGuardBypass = true;
+        try {
+          await fetch('/admin/api/shutdown', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+          });
+        } catch (e) {}
+        document.getElementById('settings-meta').textContent = '服务正在关停…此页面即将失联';
+        showToast('服务正在关停…');
+      }
+
+      // ===== 按群差异化配置 =====
+      let csChatId = '';
+
+      function csFieldHtml(f) {
+        const id = `cs-${f.key}`;
+        const help = f.help ? `<span class="setting-help">${esc(f.help)}</span>` : '';
+        if (f.kind === 'bool') {
+          const opts = [
+            ['', `跟随全局（当前：${f.global_value === 'true' ? '开启' : '关闭'}）`],
+            ['true', '本群：开启'],
+            ['false', '本群：关闭'],
+          ].map(([v, label]) => `<option value="${v}"${(f.override ?? '') === v ? ' selected' : ''}>${esc(label)}</option>`).join('');
+          return `<div class="setting-item">
+            <label for="${id}" class="setting-label">${esc(f.label)}</label>
+            <select id="${id}" data-cs-key="${f.key}">${opts}</select>
+            ${help}
+          </div>`;
+        }
+        const type = f.kind === 'float' ? 'number' : 'number';
+        const step = f.kind === 'float' ? ' step="0.05"' : '';
+        return `<div class="setting-item">
+          <label for="${id}" class="setting-label">${esc(f.label)}</label>
+          <input type="${type}"${step} id="${id}" data-cs-key="${f.key}"
+            value="${esc(f.override ?? '')}" placeholder="跟随全局（当前：${esc(f.global_value || '未设置')}）" />
+          ${help}
+        </div>`;
+      }
+
+      async function loadChatSettings() {
+        const box = document.getElementById('cs-fields');
+        const saveBtn = document.getElementById('cs-save');
+        if (!csChatId) {
+          box.innerHTML = '<div class="empty"><p>请先选择要配置的群。</p></div>';
+          saveBtn.disabled = true;
+          return;
+        }
+        try {
+          const res = await fetch(`/admin/api/chat_settings?chat_id=${encodeURIComponent(csChatId)}`);
+          if (res.status === 401) { location.href = '/admin/login'; return; }
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.detail || '加载失败');
+          box.innerHTML = (data.fields || []).map(csFieldHtml).join('');
+          saveBtn.disabled = false;
+          document.getElementById('cs-meta').textContent =
+            `群 ${csChatId} · 已覆盖 ${(data.fields || []).filter((f) => f.override != null && f.override !== '').length} 项`;
+        } catch (err) {
+          showToast(err.message || '按群配置加载失败', true);
+        }
+      }
+
+      async function saveChatSettings() {
+        if (!csChatId) return;
+        const values = {};
+        document.querySelectorAll('#cs-fields [data-cs-key]').forEach((el) => {
+          values[el.dataset.csKey] = el.value === '' ? null : el.value;
+        });
+        const btn = document.getElementById('cs-save');
+        btn.disabled = true;
+        try {
+          const res = await fetch('/admin/api/chat_settings', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': getCookie('kk_admin_csrf'),
+            },
+            body: JSON.stringify({ chat_id: Number(csChatId), values }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (Array.isArray(data.errors) && data.errors.length) {
+              showToast(`校验失败：${data.errors.join('；')}`, true);
+            } else {
+              showToast(data.detail || '保存失败', true);
+            }
+            return;
+          }
+          showToast(`群 ${csChatId} 配置已保存并生效（覆盖 ${data.count} 项）`);
+          loadChatSettings();
+        } catch (err) {
+          showToast(err.message || '保存失败', true);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      buildCombobox('cs-chat-btn', 'cs-chat-list',
+        CHATS.map((c) => ({ value: String(c), label: fmtChatLabel(c) })),
+        (v) => { csChatId = v; loadChatSettings(); });
+
+      document.getElementById('cs-save').addEventListener('click', saveChatSettings);
+      document.getElementById('ver-rollback').addEventListener('click', startRollback);
+      document.getElementById('shutdown-btn').addEventListener('click', shutdownService);
+      document.getElementById('settings-save').addEventListener('click', saveSettings);
+      document.getElementById('settings-reload').addEventListener('click', loadSettings);
+      document.getElementById('ver-check').addEventListener('click', checkVersionNow);
+      document.getElementById('ver-update').addEventListener('click', startUpdate);
+      document.getElementById('restart-now').addEventListener('click', restartNow);
+      document.getElementById('restart-later').addEventListener('click', closeRestartModal);
+      document.getElementById('restart-modal').addEventListener('click', (e) => {
+        if (e.target.id === 'restart-modal') closeRestartModal();
+      });
+
+      loadSettings();
+      loadVersion();
     </script>
   </body>
 </html>

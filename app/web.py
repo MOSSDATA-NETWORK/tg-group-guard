@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -35,8 +36,30 @@ from .keyword_replies import (
     save_keyword_rules,
     validate_keyword_rules_payload,
 )
+from .chat_settings import (
+    describe_for_chat,
+    resolve_chat,
+    set_chat_overrides,
+    validate_chat_values,
+)
 from .config import Settings
+from .notify import notify_admins
+from .runtime_settings import (
+    apply_hot_values,
+    describe_for_api,
+    merge_into_overrides,
+    validate_and_split,
+)
 from .storage import VerificationRecord, VerificationStore
+from .updater import (
+    check_latest_release,
+    read_update_state,
+    run_rollback,
+    run_update,
+    schedule_restart,
+    schedule_shutdown,
+)
+from .version import APP_VERSION
 
 
 logger = logging.getLogger(__name__)
@@ -76,6 +99,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                 "request": request,
                 "admin": session,
                 "chats": session["admin_chat_ids"],
+                "app_version": APP_VERSION,
             },
         )
 
@@ -513,6 +537,277 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
         )
         return JSONResponse({"status": "ok", "count": len(rules)})
 
+    @app.get("/admin/api/settings")
+    async def admin_api_settings_get(request: Request) -> JSONResponse:
+        await _require_admin_session(request, api=True)
+        return JSONResponse(describe_for_api(settings))
+
+    @app.put("/admin/api/settings")
+    async def admin_api_settings_put(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="非法 JSON")
+        values = payload.get("values") if isinstance(payload, dict) else None
+        hot, restart, errors, changed = validate_and_split(settings, values or {})
+        if errors:
+            return JSONResponse(
+                {"detail": "配置校验失败", "errors": errors},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if not changed:
+            return JSONResponse({"status": "ok", "applied": [], "restart_required": []})
+        try:
+            merge_into_overrides({**hot, **restart})
+        except OSError as exc:
+            logger.warning("写入配置覆盖文件失败: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="配置保存失败，请检查服务器日志",
+            ) from exc
+        apply_hot_values(settings, hot)
+        if "LOG_LEVEL" in hot:
+            level = getattr(logging, settings.log_level.upper(), logging.INFO)
+            logging.getLogger().setLevel(level)
+        logger.info(
+            "管理员更新配置 operator=%s hot=%s restart=%s",
+            session.get("user_id"),
+            sorted(hot),
+            sorted(restart),
+        )
+        asyncio.create_task(
+            notify_admins(
+                app.state.bot,
+                settings,
+                "⚙️ 后台配置已更新\n"
+                f"操作人：{session.get('name')} ({session.get('user_id')})\n"
+                f"即时生效：{', '.join(sorted(hot)) or '无'}\n"
+                f"重启后生效：{', '.join(sorted(restart)) or '无'}",
+            )
+        )
+        return JSONResponse(
+            {
+                "status": "ok",
+                "applied": sorted(hot),
+                "restart_required": sorted(restart),
+            }
+        )
+
+    @app.get("/admin/api/chat_settings")
+    async def admin_api_chat_settings_get(
+        request: Request, chat_id: Optional[int] = None
+    ) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        if chat_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="缺少 chat_id")
+        if chat_id not in set(session["admin_chat_ids"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理该群")
+        return JSONResponse(
+            {"chat_id": chat_id, "fields": describe_for_chat(settings, chat_id)}
+        )
+
+    @app.put("/admin/api/chat_settings")
+    async def admin_api_chat_settings_put(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="非法 JSON")
+        try:
+            chat_id = int(payload["chat_id"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="chat_id 无效") from exc
+        if chat_id not in set(session["admin_chat_ids"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理该群")
+
+        cleaned, errors = validate_chat_values(payload.get("values") or {})
+        if errors:
+            return JSONResponse(
+                {"detail": "配置校验失败", "errors": errors},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            set_chat_overrides(chat_id, cleaned)
+        except OSError as exc:
+            logger.warning("写入按群配置覆盖文件失败: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="配置保存失败，请检查服务器日志",
+            ) from exc
+        logger.info(
+            "管理员更新按群配置 operator=%s chat_id=%s overrides=%s",
+            session.get("user_id"),
+            chat_id,
+            sorted(cleaned),
+        )
+        asyncio.create_task(
+            notify_admins(
+                app.state.bot,
+                settings,
+                "⚙️ 本群差异化配置已更新\n"
+                f"操作人：{session.get('name')} ({session.get('user_id')})\n"
+                f"群：{chat_id}\n"
+                f"覆盖项：{', '.join(sorted(cleaned)) or '已清空（全部跟随全局）'}",
+            )
+        )
+        return JSONResponse({"status": "ok", "count": len(cleaned)})
+
+    @app.get("/admin/api/version")
+    async def admin_api_version(request: Request) -> JSONResponse:
+        await _require_admin_session(request, api=True)
+        info = getattr(app.state, "version_info", None)
+        if info is None:
+            info = await check_latest_release()
+            app.state.version_info = info
+        rollback = read_update_state()
+        return JSONResponse(
+            {
+                **info,
+                "check_enabled": settings.update_check_enabled,
+                "check_interval_seconds": settings.update_check_interval_seconds,
+                "rollback_available": rollback is not None,
+                "rollback_info": rollback,
+            }
+        )
+
+    @app.post("/admin/api/version/check")
+    async def admin_api_version_check(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        info = await check_latest_release()
+        app.state.version_info = info
+        return JSONResponse(info)
+
+    @app.get("/admin/api/update/status")
+    async def admin_api_update_status(request: Request) -> JSONResponse:
+        await _require_admin_session(request, api=True)
+        status_info = getattr(app.state, "update_status", None) or {"state": "idle"}
+        return JSONResponse(status_info)
+
+    @app.post("/admin/api/update")
+    async def admin_api_update(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        status_info = getattr(app.state, "update_status", None) or {"state": "idle"}
+        if status_info.get("state") in {"pulling", "downloading", "installing", "restarting", "rolling_back"}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="已有更新/回滚任务在进行中"
+            )
+        # 先实时校验一次，确实有新版本才允许执行
+        info = await check_latest_release()
+        app.state.version_info = info
+        if not info.get("update_available"):
+            detail = info.get("error") or "当前已是最新版本，无需更新"
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+        status_info = {"state": "pending", "log": [], "error": None, "target": info.get("latest")}
+        app.state.update_status = status_info
+
+        async def _do_update() -> None:
+            await notify_admins(
+                app.state.bot,
+                settings,
+                f"🔄 开始更新到 {info.get('latest')}\n"
+                f"操作人：{session.get('name')} ({session.get('user_id')})",
+            )
+            ok = await run_update(status_info, info)
+            if ok:
+                status_info["state"] = "restarting"
+                logger.info(
+                    "更新完成 operator=%s target=%s，即将自动重启",
+                    session.get("user_id"),
+                    info.get("latest"),
+                )
+                await notify_admins(
+                    app.state.bot,
+                    settings,
+                    f"✅ 已更新到 {info.get('latest')}，服务即将自动重启",
+                )
+                schedule_restart(2.0)
+            else:
+                await notify_admins(
+                    app.state.bot,
+                    settings,
+                    f"❌ 更新失败：{status_info.get('error') or '请查看后台日志'}",
+                )
+
+        asyncio.create_task(_do_update())
+        return JSONResponse({"status": "started", "target": info.get("latest")})
+
+    @app.post("/admin/api/rollback")
+    async def admin_api_rollback(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        state = read_update_state()
+        if state is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="没有可回滚的更新记录"
+            )
+        status_info = getattr(app.state, "update_status", None) or {"state": "idle"}
+        if status_info.get("state") in {"pulling", "downloading", "installing", "restarting", "rolling_back"}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="已有更新/回滚任务在进行中"
+            )
+        status_info = {"state": "rolling_back", "log": [], "error": None}
+        app.state.update_status = status_info
+
+        async def _do_rollback() -> None:
+            ok = await run_rollback(status_info)
+            if ok:
+                status_info["state"] = "restarting"
+                logger.warning(
+                    "已回滚到更新前状态 operator=%s from=%s",
+                    session.get("user_id"),
+                    state.get("from_version"),
+                )
+                await notify_admins(
+                    app.state.bot,
+                    settings,
+                    "↩️ 已回滚到更新前状态，服务即将自动重启\n"
+                    f"操作人：{session.get('name')} ({session.get('user_id')})",
+                )
+                schedule_restart(2.0)
+            else:
+                await notify_admins(
+                    app.state.bot,
+                    settings,
+                    f"❌ 回滚失败：{status_info.get('error') or '请查看后台日志'}",
+                )
+
+        asyncio.create_task(_do_rollback())
+        return JSONResponse({"status": "started"})
+
+    @app.post("/admin/api/restart")
+    async def admin_api_restart(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        logger.warning("管理员手动触发重启 operator=%s", session.get("user_id"))
+        await notify_admins(
+            app.state.bot,
+            settings,
+            f"🔁 服务被管理员手动重启\n操作人：{session.get('name')} ({session.get('user_id')})",
+        )
+        schedule_restart(1.5)
+        return JSONResponse({"status": "restarting"})
+
+    @app.post("/admin/api/shutdown")
+    async def admin_api_shutdown(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        logger.warning("管理员请求关停服务 operator=%s", session.get("user_id"))
+        await notify_admins(
+            app.state.bot,
+            settings,
+            "⛔ 服务被管理员关停\n"
+            f"操作人：{session.get('name')} ({session.get('user_id')})\n"
+            "注意：若使用 systemd/pm2 等守护进程，服务可能会被自动拉起。",
+        )
+        schedule_shutdown(1.5)
+        return JSONResponse({"status": "shutting_down"})
+
     @app.get("/healthz", response_model=None)
     async def health_check() -> Dict[str, Any]:
         """依赖状态检查。
@@ -637,7 +932,9 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                 await delete_prompt_message(app.state.bot, record2)
                 await notify_verification_success(app.state.bot, record2)
                 await announce_group_success(
-                    app.state.bot, record2, settings.message_ttl_seconds
+                    app.state.bot,
+                    record2,
+                    resolve_chat(settings, record2.chat_id, "message_ttl_seconds"),
                 )
                 try:
                     await store.record_verification_event(
