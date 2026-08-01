@@ -389,16 +389,19 @@ async def notify_verification_success(bot: Bot, record: VerificationRecord) -> N
     _ = (bot, record)
 
 
+def _mention_html(user_id: int, username: Optional[str]) -> str:
+    """有 username 用原生 @mention；否则退回 tg://user?id=（受对方隐私设置影响）。"""
+    if username:
+        return f"@{escape(username.lstrip('@'))}"
+    return f'<a href="tg://user?id={user_id}">{user_id}</a>'
+
+
 async def announce_group_success(
     bot: Bot,
     record: VerificationRecord,
     ttl: Optional[int],
 ) -> None:
-    display_name = escape(record.username or str(record.user_id))
-    message = (
-        f"✅ <a href='tg://user?id={record.user_id}'>{display_name}</a> "
-        "已完成验证，欢迎正式加入！"
-    )
+    message = f"✅ {_mention_html(record.user_id, record.username)} 已完成验证，欢迎正式加入！"
     try:
         await send_message_with_ttl(
             bot,
