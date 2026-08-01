@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -160,8 +160,6 @@ FIELDS: tuple[FieldSpec, ...] = (
 
 _FIELD_BY_KEY = {f.key: f for f in FIELDS}
 
-_SECRET_MASK = "__KEEP__"
-
 
 def _resolve_path() -> Path:
     return OVERRIDES_PATH.resolve()
@@ -259,8 +257,6 @@ def _parse_value(spec: FieldSpec, raw: str) -> Any:
         return raw.rstrip("/")
     if spec.key == "TELEGRAM_BOT_USERNAME":
         return raw.lstrip("@")
-    if spec.key == "LOG_LEVEL":
-        return raw.upper()
     return raw
 
 

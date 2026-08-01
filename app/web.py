@@ -655,6 +655,17 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
         )
         return JSONResponse({"status": "ok", "count": len(cleaned)})
 
+    def _version_payload(info: dict) -> dict:
+        """GET/POST 版本接口统一返回结构，前端 renderVersion 依赖这些字段。"""
+        rollback = read_update_state()
+        return {
+            **info,
+            "check_enabled": settings.update_check_enabled,
+            "check_interval_seconds": settings.update_check_interval_seconds,
+            "rollback_available": rollback is not None,
+            "rollback_info": rollback,
+        }
+
     @app.get("/admin/api/version")
     async def admin_api_version(request: Request) -> JSONResponse:
         await _require_admin_session(request, api=True)
@@ -662,16 +673,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
         if info is None:
             info = await check_latest_release()
             app.state.version_info = info
-        rollback = read_update_state()
-        return JSONResponse(
-            {
-                **info,
-                "check_enabled": settings.update_check_enabled,
-                "check_interval_seconds": settings.update_check_interval_seconds,
-                "rollback_available": rollback is not None,
-                "rollback_info": rollback,
-            }
-        )
+        return JSONResponse(_version_payload(info))
 
     @app.post("/admin/api/version/check")
     async def admin_api_version_check(request: Request) -> JSONResponse:
@@ -679,7 +681,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
         _require_csrf(request, session)
         info = await check_latest_release()
         app.state.version_info = info
-        return JSONResponse(info)
+        return JSONResponse(_version_payload(info))
 
     @app.get("/admin/api/update/status")
     async def admin_api_update_status(request: Request) -> JSONResponse:

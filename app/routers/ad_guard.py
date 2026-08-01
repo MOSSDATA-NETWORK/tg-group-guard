@@ -713,30 +713,6 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
 
         if not _ad_guard_on:
             return
-        if (
-            not is_edit
-            and _kw_reply_on
-            and message.chat.type in {"group", "supergroup"}
-            and message.sender_chat is None
-            and message.from_user is not None
-            and not message.from_user.is_bot
-        ):
-            kw_rules, kw_cooldown = get_keyword_reply_config()
-            if kw_rules:
-                await try_keyword_reply(
-                    bot,
-                    message,
-                    rules=kw_rules,
-                    cooldown_seconds=(
-                        kw_cooldown
-                        if kw_cooldown is not None
-                        else settings.keyword_reply_cooldown_seconds
-                    ),
-                    ttl=_msg_ttl,
-                )
-
-        if not _ad_guard_on:
-            return
 
         sender_chat = message.sender_chat
         is_auto_forward = getattr(message, "is_automatic_forward", False)

@@ -399,6 +399,8 @@ async def run_rollback(status: dict[str, Any]) -> bool:
             return False
         status["state"] = "rolling_back"
         try:
+            # 还原快照中的文件；更新新引入的文件不会被删除，
+            # 但旧代码不会引用它们，不影响回滚后的运行
             with zipfile.ZipFile(backup) as zf:
                 for name in zf.namelist():
                     target = (PROJECT_ROOT / name).resolve()

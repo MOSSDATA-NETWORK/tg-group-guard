@@ -2735,6 +2735,7 @@
 
       function pollUpdateStatus() {
         if (updatePolling) clearInterval(updatePolling);
+        let sawServerDown = false;
         updatePolling = setInterval(async () => {
           let st;
           try {
@@ -2743,6 +2744,14 @@
             st = await res.json();
           } catch (e) {
             // 服务可能正在重启
+            sawServerDown = true;
+            return;
+          }
+          if (sawServerDown) {
+            // 服务从重启中恢复：内存里的进度已清空，直接刷新页面
+            clearInterval(updatePolling);
+            updatePolling = null;
+            location.reload();
             return;
           }
           const logEl = document.getElementById('update-log');
@@ -2821,11 +2830,10 @@
             ${help}
           </div>`;
         }
-        const type = f.kind === 'float' ? 'number' : 'number';
         const step = f.kind === 'float' ? ' step="0.05"' : '';
         return `<div class="setting-item">
           <label for="${id}" class="setting-label">${esc(f.label)}</label>
-          <input type="${type}"${step} id="${id}" data-cs-key="${f.key}"
+          <input type="number"${step} id="${id}" data-cs-key="${f.key}"
             value="${esc(f.override ?? '')}" placeholder="跟随全局（当前：${esc(f.global_value || '未设置')}）" />
           ${help}
         </div>`;
