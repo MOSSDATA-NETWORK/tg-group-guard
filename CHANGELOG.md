@@ -7,15 +7,19 @@
 
 - 修复：`AD_GUARD_MIN_LENGTH` 配置不生效的死配置问题，低于最小长度的消息不再送入
   LLM 广告检测，节省 API 配额并避免短消息误判。
-- 修复：Prometheus 指标大面积未接线 —— `kkbot_messages_total`、
-  `kkbot_verification_total` 现在按处理结果正常计数，评分 Redis 降级时
-  `kkbot_score_redis_degraded` 会正确置 1，告警规则不再形同虚设。
+- 修复：Prometheus 指标大面积未接线 —— `telegram_group_guard_bot_messages_total`、
+  `telegram_group_guard_bot_verification_total` 现在按处理结果正常计数，评分 Redis
+  降级时 `telegram_group_guard_bot_score_redis_degraded` 会正确置 1，告警规则不再形同虚设。
 - 修复：Windows 部署下更新/回滚后自重启不可靠（`os.execv` 无法平滑替换进程），
   改为子进程接力重启，避免进程僵死与端口占用。
 - 修复：低分提醒文案「今日评分」与永久评分的实际语义不符，已改为「累计评分」。
 - 修复：验证 token 锁释放瞬间的竞态条件，避免等待者与新请求并发绕过串行化。
 - 修复：更新源码包解压时的路径穿越校验不严谨（同前缀兄弟目录可能误判通过）。
 - 清理：`app/bot.py` 中重复的导入与重复的初始化调用。
+- 变更：Prometheus 指标前缀统一为 `telegram_group_guard_bot_`（6 个指标）；
+  Redis 评分键前缀由 `kkbot:adscore` 更名为 `telegram_group_guard_bot:adscore`，
+  升级后旧前缀下的历史评分不再读取、成员评分从零累计（可用 `REDIS_SCORE_PREFIX`
+  环境变量改回旧前缀以保留历史数据）。
 - 新增：`monitoring/` Grafana 监控仪表盘模板（13 个面板，导入你已有的 Grafana
   即用），附预览图、Prometheus 抓取配置片段与 3 条推荐告警规则，
   详见 `monitoring/README.md`。
