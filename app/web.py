@@ -90,6 +90,16 @@ async def _run_updater_task(coro, status_info: dict, label: str) -> None:
 def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI:
     app = FastAPI(title="Telegram Join Verification")
 
+    if settings.admin_behind_proxy:
+        # 安全提示:此模式无条件信任 X-Forwarded-For / X-Forwarded-Proto。
+        # 若前面没有反代覆写这些头,客户端可伪造 XFF 绕过 IP 限流、
+        # 伪造 XFP 让明文请求被判为安全。启动时显式告警,督促核对部署。
+        logger.warning(
+            "ADMIN_BEHIND_PROXY=true:将信任 X-Forwarded-For / X-Forwarded-Proto。"
+            "请确认上游反代(Nginx/Caddy/CF)会覆写这两个头,"
+            "否则限流与 HTTPS 判定可被客户端伪造;直连部署必须关闭此开关"
+        )
+
     app.state.settings = settings
     app.state.store = store
     app.state.bot = bot

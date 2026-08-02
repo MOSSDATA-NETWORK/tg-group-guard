@@ -52,6 +52,23 @@ def _provider_label(provider: str) -> str:
     return _PROVIDER_LABEL.get(provider, provider or "AI")
 
 
+def _extract_media_payload(message: Message) -> tuple[Optional[str], Optional[str]]:
+    """提取消息的媒体类型与 file_id(取最大尺寸),供复核恢复快照;无媒体返回 (None, None)。"""
+    if message.photo:
+        return "photo", message.photo[-1].file_id
+    if message.video:
+        return "video", message.video.file_id
+    if message.document:
+        return "document", message.document.file_id
+    if message.animation:
+        return "animation", message.animation.file_id
+    if message.audio:
+        return "audio", message.audio.file_id
+    if message.voice:
+        return "voice", message.voice.file_id
+    return None, None
+
+
 def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router:
     router = Router(name="ad_guard")
     settings = services.settings
@@ -272,7 +289,12 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         is_user_forward: bool,
         *,
         count_valid_speech: bool = True,
-    ) -> None:
+    ) -> Optional[str]:
+        """执行广告检测与处置。返回终态指标标签(ad_passed/ad_flagged),其余返回 None。
+
+        指标由调用方统一记录,保证每条消息只计入一个互斥结果标签,
+        避免跨 label 求和时吞吐量虚高。
+        """
         chat_id = message.chat.id
         user_id = current_entry.user_id
 
@@ -400,6 +422,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         force_ban_triggered = False
         # 快封路径已提前删除消息(封禁失败回退时),后续不再重复删除
         message_pre_deleted = False
+        # 快封路径封禁失败标记:普通封禁路径据此跳过对同一用户的二次封禁调用
+        fast_ban_failed = False
 
         # 高把握度跳过投票：规则命中（confidence=1.0）或 LLM confidence ≥ 0.95 直接封禁
         FAST_BAN_CONFIDENCE = 0.95
@@ -468,6 +492,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 )
                 # 封禁失败时回退到“走原投票+复核流程”，避免噤声
                 force_ban_triggered = False
+                fast_ban_failed = True
 
         if not final_flagged:
             if current_entry.text:
@@ -503,12 +528,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 new_count,
                 qualified,
             )
-            if metrics is not None:
-                metrics.record_message(result="ad_passed", chat_id=chat_id)
-            return
+            return "ad_passed"
 
-        if metrics is not None:
-            metrics.record_message(result="ad_flagged", chat_id=chat_id)
         score_after_penalty = await score_manager.adjust_score(chat_id, user_id, -1)
         logger.debug(
             "广告判定扣分 chat_id=%s user_id=%s score=%s",
@@ -548,6 +569,9 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         ban_success = force_ban_triggered
         if ban_success:
             action_suffix = "（管理员已强制封禁）"
+        elif fast_ban_failed:
+            # 快封路径刚对同一用户尝试过封禁且失败,不再重复调用 ban,公告如实
+            action_suffix = "（封禁失败，仅删除消息）"
         elif resolve_chat(settings, chat_id, "ad_guard_ban"):
             if score_after_penalty <= settings.ad_guard_score_ban_threshold:
                 try:
@@ -644,6 +668,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
 
         if review_id is not None:
             original_html = message.html_text or escape(text)
+            # 同时快照媒体 file_id,供 restore 时一并发回(否则带图广告恢复后原图丢失)
+            media_type, media_file_id = _extract_media_payload(message)
             # 写一份快照到 store,供后续 restore 读取原文
             from datetime import datetime, timezone as _tz
 
@@ -669,12 +695,16 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 notice_chat_id=notice_message.chat.id,
                 notice_message_id=notice_message.message_id,
                 confidence=confidence,
+                media_type=media_type,
+                media_file_id=media_file_id,
             )
             await ad_review_store.put(review_id, context)
             ttl_seconds = resolve_chat(settings, chat_id, "message_ttl_seconds") or 0
             # TTL 未配置时也要兜底过期(默认 1 小时),否则复核 case 会常驻内存
             expiry_delay = ttl_seconds + 5 if ttl_seconds > 0 else 3600
             ad_review_store.schedule_expiry(review_id, expiry_delay)
+
+        return "ad_flagged"
 
     @router.message(F.text | F.caption)
     async def handle_text_messages(message: Message, bot: Bot, *, is_edit: bool = False) -> None:
@@ -685,13 +715,18 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         _ad_guard_on = resolve_chat(settings, _cid, "ad_guard_enabled")
         _msg_ttl = resolve_chat(settings, _cid, "message_ttl_seconds")
 
-        if (
-            metrics is not None
-            and message.chat.type in {"group", "supergroup"}
-            and message.from_user is not None
-            and not message.from_user.is_bot
-        ):
-            metrics.record_message(result="received", chat_id=_cid)
+        # 指标口径:每条消息只记录一个互斥结果标签(修复前 received 与
+        # ad_passed/ad_flagged 等终态标签重复计数,跨 label 求和约虚高 2 倍)
+        kw_replied = False
+
+        def _record_outcome(result: str) -> None:
+            if (
+                metrics is not None
+                and message.chat.type in {"group", "supergroup"}
+                and message.from_user is not None
+                and not message.from_user.is_bot
+            ):
+                metrics.record_message(result=result, chat_id=message.chat.id)
 
         # 关键词自动回复:独立于广告守卫开关;编辑消息不触发,避免重复回复
         if (
@@ -715,8 +750,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     ),
                     ttl=_msg_ttl,
                 )
-                if replied and metrics is not None:
-                    metrics.record_message(result="keyword_replied", chat_id=_cid)
+                if replied:
+                    kw_replied = True
 
         # 关键词自动删除:独立于广告守卫开关;编辑消息不触发
         if (
@@ -731,11 +766,11 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             if kd_rules:
                 deleted = await try_keyword_deletion(bot, message, rules=kd_rules)
                 if deleted:
-                    if metrics is not None:
-                        metrics.record_message(result="keyword_deleted", chat_id=_cid)
+                    _record_outcome("keyword_deleted")
                     return
 
         if not _ad_guard_on:
+            _record_outcome("keyword_replied" if kw_replied else "skipped")
             return
 
         sender_chat = message.sender_chat
@@ -766,9 +801,11 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     exc,
                     exc_info=exc,
                 )
+            _record_outcome("channel_blocked")
             return
 
         if message.from_user is None or message.from_user.is_bot:
+            # 机器人/匿名消息不计入指标(与原口径一致)
             return
 
         # 同时支持纯文本和带图/媒体的 caption（广告号常把文案塞进图片说明绕过检测）
@@ -786,12 +823,15 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 history.append(
                     build_history_entry(message, text_for_history, is_user_forward=True)
                 )
+            _record_outcome("skipped")
             return
 
         if not raw_text:
+            _record_outcome("keyword_replied" if kw_replied else "skipped")
             return
         text = raw_text.strip()
         if not text:
+            _record_outcome("keyword_replied" if kw_replied else "skipped")
             return
 
         is_user_forward = any(
@@ -804,10 +844,13 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         previous_entries = list(history)
         current_entry = build_history_entry(message, text, is_user_forward=is_user_forward)
 
-        await _evaluate_ad(
+        ad_outcome = await _evaluate_ad(
             bot, message, text, previous_entries, current_entry, is_user_forward,
             count_valid_speech=not is_edit,
         )
+        # 广告检测产出终态时优先采用(ad_passed/ad_flagged);
+        # 检测前置跳过(合格用户/低分处置等)时回退到关键词回复或 skipped
+        _record_outcome(ad_outcome or ("keyword_replied" if kw_replied else "skipped"))
 
     @router.edited_message(F.text | F.caption)
     async def handle_edited_text_messages(message: Message, bot: Bot) -> None:
@@ -1037,11 +1080,44 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 f"{offender_link} 的消息不是广告，恢复内容如下：\n\n"
                 f"<blockquote>{restored_payload}</blockquote>"
             )
-            await bot.send_message(
-                case.chat_id,
-                restored_message,
-                disable_web_page_preview=True,
+            media_sender = (
+                {
+                    "photo": bot.send_photo,
+                    "video": bot.send_video,
+                    "document": bot.send_document,
+                    "animation": bot.send_animation,
+                    "audio": bot.send_audio,
+                    "voice": bot.send_voice,
+                }.get(case.media_type or "")
+                if case.media_file_id
+                else None
             )
+            media_restored = False
+            if media_sender is not None and case.media_file_id:
+                # caption 上限 1024 字符,超出截断;file_id 失效则回退纯文本
+                caption = (
+                    restored_message
+                    if len(restored_message) <= 1000
+                    else restored_message[:997] + "..."
+                )
+                try:
+                    await media_sender(case.chat_id, case.media_file_id, caption=caption)
+                    media_restored = True
+                except TelegramBadRequest as exc:
+                    logger.warning(
+                        "恢复消息媒体发送失败(file_id 可能已失效),回退纯文本 chat_id=%s type=%s error=%s",
+                        case.chat_id,
+                        case.media_type,
+                        exc,
+                    )
+            if not media_restored:
+                if case.media_file_id:
+                    restored_message += "\n\n⚠️ 原消息附带的媒体内容未能恢复。"
+                await bot.send_message(
+                    case.chat_id,
+                    restored_message,
+                    disable_web_page_preview=True,
+                )
             try:
                 await store.record_ad_decision(
                     chat_id=case.chat_id,

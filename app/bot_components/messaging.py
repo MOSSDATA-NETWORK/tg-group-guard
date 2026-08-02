@@ -112,7 +112,18 @@ async def send_message_with_ttl(
             )
     elif delete_mode == "record":
         if store and token:
-            await store.set_prompt_message(token, message.message_id)
+            try:
+                await store.set_prompt_message(token, message.message_id)
+            except Exception as exc:
+                # 写库失败(如 SQLite 瞬时锁定)不能中断流程:若在这里抛出,
+                # 下方 TTL 删除不会调度、prompt_message_id 也没落库,
+                # 提示消息将成为群内永久孤儿
+                logger.warning(
+                    "记录验证提示消息 ID 失败(继续调度 TTL 删除) chat_id=%s msg_id=%s error=%r",
+                    chat_id,
+                    message.message_id,
+                    exc,
+                )
         if ttl and ttl > 0:
             logger.debug(
                 "计划删除验证提示 chat_id=%s message_id=%s ttl=%s",

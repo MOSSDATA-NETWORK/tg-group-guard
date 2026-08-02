@@ -127,12 +127,12 @@ ax.text(0.5, 0.22, "● 已连接,评分正常持久化", transform=ax.transAxes
 # ---------- Row 2 ----------
 # 消息处理速率(堆叠)
 ax = draw_panel(0, 7, 12, 9, "消息处理速率（按结果）")
-received = smooth(3.2, 0.8)
+skipped = smooth(3.2, 0.8)
 kw = smooth(0.35, 0.15)
 passed = smooth(1.4, 0.4)
 flagged = smooth(0.22, 0.1)
-ax.stackplot(t, received, kw, passed, flagged,
-             labels=["received 收到", "keyword_deleted 关键词删除", "ad_passed 检测通过", "ad_flagged 判为广告"],
+ax.stackplot(t, skipped, kw, passed, flagged,
+             labels=["skipped 前置跳过", "keyword_deleted 关键词删除", "ad_passed 检测通过", "ad_flagged 判为广告"],
              colors=[BLUE, ORANGE, GREEN, RED], alpha=0.85, lw=0)
 style_ts(ax)
 ax.set_ylabel("msg/s", color=SUB, fontsize=8)
@@ -141,7 +141,7 @@ ax.legend(loc="upper left", fontsize=7.5, frameon=False, labelcolor=TEXT, ncol=2
 # 消息构成 donut
 ax = draw_panel(12, 7, 6, 9, "消息处理构成（24h）")
 vals = [2891, 186, 1037, 137]
-labels = ["收到 2891", "关键词删除 186", "检测通过 1037", "判为广告 137"]
+labels = ["前置跳过 2891", "关键词删除 186", "检测通过 1037", "判为广告 137"]
 colors = [BLUE, ORANGE, GREEN, RED]
 wedges, _ = ax.pie(vals, colors=colors, startangle=90,
                    wedgeprops=dict(width=0.34, edgecolor=PANEL, linewidth=2),

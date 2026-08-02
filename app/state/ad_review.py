@@ -22,6 +22,10 @@ class AdReviewContext:
     notice_chat_id: int
     notice_message_id: int
     confidence: Optional[float]
+    # 原消息的媒体快照(带 caption 的图片/视频等),供"这不是广告"恢复时一并发回;
+    # 修复前只存文本,带图广告误判恢复后原图永久丢失
+    media_type: Optional[str] = None
+    media_file_id: Optional[str] = None
     locked_by: Optional[int] = None
     resolved: bool = False
 

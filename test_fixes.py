@@ -1042,6 +1042,126 @@ def test_settings_api_exposes_ad_guard_effective():
     print("PASS: 设置 API 暴露 ad_guard 意图与实际生效状态")
 
 
+def test_extract_media_payload():
+    """#1: 媒体快照提取(取最大尺寸/各类型/无媒体)。"""
+    from types import SimpleNamespace as _SN
+
+    from app.routers.ad_guard import _extract_media_payload
+
+    base = dict(photo=None, video=None, document=None, animation=None, audio=None, voice=None)
+    msg = _SN(**{**base, "photo": [_SN(file_id="small"), _SN(file_id="big")]})
+    assert _extract_media_payload(msg) == ("photo", "big"), "应取最大尺寸照片"
+    msg = _SN(**{**base, "video": _SN(file_id="v1")})
+    assert _extract_media_payload(msg) == ("video", "v1")
+    msg = _SN(**{**base, "document": _SN(file_id="d1")})
+    assert _extract_media_payload(msg) == ("document", "d1")
+    msg = _SN(**{**base, "animation": _SN(file_id="g1")})
+    assert _extract_media_payload(msg) == ("animation", "g1")
+    msg = _SN(**base)
+    assert _extract_media_payload(msg) == (None, None)
+    print("PASS: 媒体快照提取(最大尺寸/多类型/无媒体)正确")
+
+
+async def test_prompt_record_failure_still_schedules_ttl():
+    """#3: set_prompt_message 写库失败时,TTL 删除仍被调度,提示消息不成孤儿。"""
+    from types import SimpleNamespace as _SN
+
+    from app.bot_components import messaging as msg
+
+    spawned: list[tuple] = []
+
+    class _Store:
+        async def set_prompt_message(self, token, message_id):
+            raise RuntimeError("database is locked")
+
+    class _Bot:
+        async def send_message(self, chat_id, text, **kwargs):
+            return _SN(message_id=555, chat=_SN(id=chat_id))
+
+    real_spawn = msg._spawn_delete_task
+    msg._spawn_delete_task = lambda bot, chat_id, message_id, delay: spawned.append(
+        (chat_id, message_id, delay)
+    )
+    try:
+        await msg.send_message_with_ttl(
+            _Bot(), -100, "验证提示", ttl=60, store=_Store(), token="tok", delete_mode="record"
+        )
+        assert spawned == [(-100, 555, 60)], f"写库失败导致 TTL 未调度: {spawned}"
+    finally:
+        msg._spawn_delete_task = real_spawn
+    print("PASS: 验证提示写库失败仍调度 TTL 删除(不成孤儿)")
+
+
+async def test_low_score_ban_failure_rollback_and_cooldown():
+    """#4: ban 失败回滚扣分;冷却期内静默删除,不再扣分/封禁/公告。"""
+    from types import SimpleNamespace as _SN
+
+    from aiogram.exceptions import TelegramBadRequest
+
+    from app.bot_components import moderation as mod
+
+    sent: list[str] = []
+
+    class _Score:
+        def __init__(self):
+            self.score = -10
+            self.calls: list[int] = []
+
+        async def adjust_score(self, chat_id, user_id, delta):
+            self.calls.append(delta)
+            self.score += delta
+            return self.score
+
+        async def reset_score(self, chat_id, user_id):
+            raise AssertionError("封禁失败不应重置评分")
+
+    class _Bot:
+        def __init__(self):
+            self.ban_attempts = 0
+            self.deleted: list[int] = []
+
+        async def delete_message(self, chat_id, message_id, **k):
+            self.deleted.append(message_id)
+            return True
+
+        async def ban_chat_member(self, *a, **k):
+            self.ban_attempts += 1
+            raise TelegramBadRequest(method=None, message="not enough rights")
+
+        async def send_message(self, chat_id, text, **kwargs):
+            sent.append(text)
+            return _SN(message_id=1, chat=_SN(id=chat_id))
+
+    message = _SN(
+        from_user=_SN(id=777, full_name="U", username=None),
+        chat=_SN(id=-200),
+        message_id=7,
+    )
+    settings = _SN(ad_guard_ban=True, ad_guard_score_ban_threshold=-3, message_ttl_seconds=None)
+
+    mod._ban_failure_cooldown.clear()
+    try:
+        score, bot = _Score(), _Bot()
+        await mod.handle_low_score_violation(
+            bot, message, settings=settings, score_manager=score, current_score=-10
+        )
+        assert score.calls == [-1, 1], f"ban 失败未回滚扣分: {score.calls}"
+        assert score.score == -10, "回滚后评分应回到原值"
+        assert bot.ban_attempts == 1 and len(sent) == 1
+
+        # 冷却期内再次触发:静默删除,不再扣分/封禁/公告
+        await mod.handle_low_score_violation(
+            bot, message, settings=settings, score_manager=score, current_score=-10
+        )
+        assert bot.ban_attempts == 1, "冷却期内重复尝试封禁"
+        assert score.calls == [-1, 1], "冷却期内重复扣分"
+        assert len(sent) == 1, "冷却期内重复公告"
+        assert bot.deleted == [7, 7], "冷却期内仍应删除消息保持禁言效果"
+    finally:
+        mod._ban_failure_cooldown.clear()
+    print("PASS: 低分 ban 失败回滚扣分 + 冷却防刷屏(静默删除保留)")
+
+
 async def main():
     await test_summarize_metrics_keyerror()
     await test_recent_events_default_30d()
@@ -1075,6 +1195,9 @@ async def main():
     await test_openai_empty_endpoint_uses_official()
     test_heuristic_timeout_circuit_breaker()
     test_settings_api_exposes_ad_guard_effective()
+    test_extract_media_payload()
+    await test_prompt_record_failure_still_schedules_ttl()
+    await test_low_score_ban_failure_rollback_and_cooldown()
     print("\n全部回归验证通过")
 
 
