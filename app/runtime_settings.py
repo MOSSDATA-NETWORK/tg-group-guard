@@ -366,6 +366,9 @@ def describe_for_api(settings: Settings) -> dict[str, Any]:
             else:
                 item["value"] = _to_raw(spec, value)
                 item["is_set"] = True
+            if spec.key == "AD_GUARD_ENABLED":
+                # 开关显示意图值;额外暴露实际生效状态,便于前端提示"已开启但未生效"
+                item["effective"] = bool(settings.ad_guard_enabled)
             fields.append(item)
         if fields:
             groups.append({"name": group, "fields": fields})

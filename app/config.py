@@ -119,7 +119,7 @@ def describe_effective_config(settings: "Settings") -> dict:
             "timeout_seconds": settings.ollama_timeout_seconds,
         },
         "openai": {
-            "endpoint": settings.openai_endpoint or "<unset>",
+            "endpoint": settings.openai_endpoint or "https://api.openai.com(默认)",
             "model": settings.openai_model,
             "api_key": _mask_secret(settings.openai_api_key),
             "timeout_seconds": settings.openai_timeout_seconds,

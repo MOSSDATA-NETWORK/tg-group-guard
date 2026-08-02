@@ -23,6 +23,10 @@ if _regex_engine is None:
 
 _PATTERN_ERROR_TYPES = (re.error,) if _regex_engine is None else (re.error, _regex_engine.error)
 _REGEX_TIMEOUT_SECONDS = 0.5
+# 超时即永久熔断(按 pattern 文本),与关键词模块同款语义:
+# 避免灾难性 pattern 让每条消息阻塞事件循环最多 5 × 0.5s;
+# 热重载后同名 pattern 仍保持禁用,防止反复踩同一个雷
+_DISABLED_PATTERNS: set[str] = set()
 
 
 def _compile_pattern(pattern_raw: str) -> Any:
@@ -30,14 +34,19 @@ def _compile_pattern(pattern_raw: str) -> Any:
 
 
 def heuristic_pattern_search(pattern: Any, text: str) -> bool:
-    """带超时的启发式规则匹配;超时按未命中处理,避免卡死事件循环。"""
+    """带超时与熔断的启发式规则匹配;超时熔断后按未命中处理,避免卡死事件循环。"""
+    pattern_text = getattr(pattern, "pattern", None)
+    if pattern_text is not None and pattern_text in _DISABLED_PATTERNS:
+        return False
     if _regex_engine is not None and isinstance(pattern, _regex_engine.Pattern):
         try:
             return bool(pattern.search(text, timeout=_REGEX_TIMEOUT_SECONDS))
         except TimeoutError:
+            _DISABLED_PATTERNS.add(pattern.pattern)
             logger.warning(
-                "广告守卫启发式规则正则执行超时(>%.1fs),本次按未命中处理",
+                "广告守卫启发式规则正则执行超时(>%.1fs),已熔断禁用 pattern=%r",
                 _REGEX_TIMEOUT_SECONDS,
+                pattern.pattern,
             )
             return False
     return bool(pattern.search(text))

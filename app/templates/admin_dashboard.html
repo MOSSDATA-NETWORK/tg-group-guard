@@ -2486,10 +2486,13 @@
         const badge = f.restart ? '<span class="restart-badge">需重启</span>' : '';
         const help = f.help ? `<span class="setting-help">${esc(f.help)}</span>` : '';
         if (f.kind === 'bool') {
+          const ineffective = (f.key === 'AD_GUARD_ENABLED' && f.value === 'true' && f.effective === false)
+            ? '<span class="setting-help" style="color:#e6a23c;">⚠️ 已开启但当前未生效：请检查 AI 总开关与对应端点/密钥配置</span>'
+            : '';
           return `<div class="setting-item setting-check">
             <input type="checkbox" id="${id}" data-key="${f.key}"${f.value === 'true' ? ' checked' : ''} />
             <label for="${id}" class="setting-label">${esc(f.label)} ${badge}</label>
-            ${help}
+            ${help}${ineffective}
           </div>`;
         }
         let input;

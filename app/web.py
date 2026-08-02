@@ -911,13 +911,10 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
         now = datetime.now(tz=UTC)
         if record.status != "pending":
             return JSONResponse({"status": "already_verified"})
-        if record.expire_at <= now:
-            await store.mark_failed(token, now)
-            _record_verification_metric(app, "expired")
-            await ban_and_cleanup(app.state.bot, store, record, reason="expired_via_web")
-            return JSONResponse({"status": "expired"})
 
-        # token 级串行化,防止并发请求重复执行 lift_restrictions / announce
+        # token 级串行化,防止并发请求重复执行 lift_restrictions / announce;
+        # 过期处理也在锁内进行(与清理器、admin 回调共用同一把锁),
+        # 避免锁外快路径与清理器并发执行 ban_and_cleanup
         token_lock = await store.acquire_token_lock(token)
         try:
             async with token_lock:

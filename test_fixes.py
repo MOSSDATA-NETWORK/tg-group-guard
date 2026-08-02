@@ -933,6 +933,115 @@ async def test_cleanup_serialized_with_admin_via_token_lock():
     print("PASS: 清理器与管理员操作 token 锁串行(放行后不再封禁)")
 
 
+async def test_openai_empty_endpoint_uses_official():
+    """#1: openai provider 端点留空时默认官方地址,不再每条消息静默跳过。"""
+    from types import SimpleNamespace as _SN
+
+    from app.bot_components import ad_guard as ag
+
+    captured: dict[str, str] = {}
+
+    class _Resp:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def json(self):
+            return {"choices": [{"message": {"content": '{"advertisement": false, "confidence": 0.1}'}}]}
+
+        async def text(self):
+            return ""
+
+    class _Session:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def post(self, url, json=None, headers=None):
+            captured["url"] = url
+            return _Resp()
+
+    real = ag.aiohttp
+    ag.aiohttp = _SN(ClientSession=_Session, ClientTimeout=lambda **kw: None, ClientError=Exception)
+    try:
+        settings = _SN(
+            openai_api_key="sk-x",
+            openai_endpoint=None,
+            openai_model="gpt-4o-mini",
+            openai_timeout_seconds=30,
+            ad_guard_threshold=0.5,
+        )
+        flagged, _conf = await ag._check_advertisement_openai("hello", settings)
+        assert captured.get("url") == "https://api.openai.com/chat/completions", captured
+        assert flagged is False
+
+        # 自定义端点行为不变
+        settings.openai_endpoint = "https://oneapi.example.com/"
+        await ag._check_advertisement_openai("hello", settings)
+        assert captured["url"] == "https://oneapi.example.com/chat/completions"
+    finally:
+        ag.aiohttp = real
+    print("PASS: openai provider 端点留空默认官方地址(自定义端点不受影响)")
+
+
+def test_heuristic_timeout_circuit_breaker():
+    """#3: 启发式正则超时一次即永久熔断,后续调用不再执行灾难 pattern。"""
+    from types import SimpleNamespace as _SN
+
+    from app import ad_guard_rules as agr
+
+    calls = {"n": 0}
+
+    class _FakePattern:
+        pattern = "(evil)+$"
+
+        def search(self, text, timeout=None):
+            calls["n"] += 1
+            raise TimeoutError()
+
+    real_engine = agr._regex_engine
+    agr._regex_engine = _SN(Pattern=_FakePattern)
+    try:
+        p = _FakePattern()
+        assert agr.heuristic_pattern_search(p, "x" * 100) is False
+        assert p.pattern in agr._DISABLED_PATTERNS
+        assert agr.heuristic_pattern_search(p, "x" * 100) is False
+        assert calls["n"] == 1, "熔断后仍在重复执行灾难 pattern"
+    finally:
+        agr._regex_engine = real_engine
+        agr._DISABLED_PATTERNS.discard("(evil)+$")
+    print("PASS: 启发式正则超时熔断(一次超时永久禁用,零持续开销)")
+
+
+def test_settings_api_exposes_ad_guard_effective():
+    """#2: 设置 API 对广告守卫开关同时暴露意图值与实际生效状态。"""
+    from types import SimpleNamespace as _SN
+
+    from app.runtime_settings import FIELDS, describe_for_api
+
+    settings = _SN(**{f.attr: None for f in FIELDS})
+    settings.allowed_chat_ids = set()
+    settings.ad_guard_enabled_intent = True
+    settings.ad_guard_enabled = False
+
+    data = describe_for_api(settings)
+    item = next(
+        f for g in data["groups"] for f in g["fields"] if f["key"] == "AD_GUARD_ENABLED"
+    )
+    assert item["value"] == "true", "开关应显示管理员意图"
+    assert item["effective"] is False, "API 应额外暴露实际生效状态"
+    print("PASS: 设置 API 暴露 ad_guard 意图与实际生效状态")
+
+
 async def main():
     await test_summarize_metrics_keyerror()
     await test_recent_events_default_30d()
@@ -963,6 +1072,9 @@ async def main():
     test_heuristic_rules_signature_reload()
     test_message_history_lru_cap()
     await test_cleanup_serialized_with_admin_via_token_lock()
+    await test_openai_empty_endpoint_uses_official()
+    test_heuristic_timeout_circuit_breaker()
+    test_settings_api_exposes_ad_guard_effective()
     print("\n全部回归验证通过")
 
 

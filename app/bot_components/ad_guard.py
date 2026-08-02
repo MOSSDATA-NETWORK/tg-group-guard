@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# OPENAI_ENDPOINT 留空时的官方默认端点(字段说明承诺"可留空用官方")
+_OFFICIAL_OPENAI_ENDPOINT = "https://api.openai.com"
+
 
 def heuristic_detect_advertisement(
     text: str,
@@ -169,10 +172,13 @@ async def _check_advertisement_openai(
         logger.warning("启用了 OpenAI 兼容守卫但未配置 OPENAI_API_KEY")
         return (False, None)
 
-    base_url = settings.openai_endpoint.rstrip("/") if settings.openai_endpoint else None
-    if not base_url:
-        logger.warning("启用了 OpenAI 兼容守卫但未配置 OPENAI_ENDPOINT")
-        return (False, None)
+    # 端点留空时使用官方地址(与字段说明"可留空用官方"一致);
+    # 修复前端点留空会每条消息静默跳过,守卫形同虚设但 UI 显示开启
+    base_url = (
+        settings.openai_endpoint.rstrip("/")
+        if settings.openai_endpoint
+        else _OFFICIAL_OPENAI_ENDPOINT
+    )
 
     prompt = render_prompt_message(content.strip())
     logger.debug("广告检测提示词 provider=openai length=%s\n%s", len(prompt), prompt)
