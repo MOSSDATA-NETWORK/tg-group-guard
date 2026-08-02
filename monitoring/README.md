@@ -4,6 +4,10 @@ Bot 本身已通过 `/metrics` 端点暴露全部指标(`.env` 设 `ENABLE_METRI
 `pip install prometheus_client` 即可)。本目录只提供 **Grafana 仪表盘模板**,
 直接导入你已有的 Prometheus + Grafana 环境使用,无需额外搭建任何服务。
 
+![仪表盘预览](dashboard-preview.png)
+
+> 预览图为按真实面板布局绘制的效果示意(示例数据);`preview_mockup.py` 是生成该图的脚本,仅供维护预览用,使用模板无需运行。
+
 ## 一、导入仪表盘
 
 1. 确认你的 Prometheus 已抓取 Bot 指标(见下方抓取配置)。
