@@ -266,6 +266,135 @@ async def test_join_prompt_sent_once():
     print("PASS: 入群双事件只发一次验证提示,窗口外重进正常重发")
 
 
+def test_relauncher_wait_for_port_free():
+    """Bug 修复:relauncher 能正确判断端口是否已释放(防 Windows 重启端口竞争)。"""
+    import socket as _socket
+
+    from app.relauncher import wait_for_port_free
+
+    # 空闲端口:立即返回 True
+    probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    free_port = probe.getsockname()[1]
+    probe.close()
+    assert wait_for_port_free(free_port, timeout=2.0, interval=0.1) is True
+
+    # 占用中的端口:超时后返回 False,而不是盲目启动
+    holder = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    holder.bind(("0.0.0.0", 0))
+    busy_port = holder.getsockname()[1]
+    try:
+        start = datetime.now()
+        assert wait_for_port_free(busy_port, timeout=0.8, interval=0.2) is False
+        elapsed = (datetime.now() - start).total_seconds()
+        assert elapsed >= 0.7, f"应等到超时,实际 {elapsed:.2f}s 就返回了"
+    finally:
+        holder.close()
+    # 占用释放后:恢复可 bind
+    assert wait_for_port_free(busy_port, timeout=2.0, interval=0.1) is True
+    print("PASS: relauncher 端口探测(空闲即过/占用等待/释放后恢复)正确")
+
+
+def test_restart_process_windows_uses_relauncher():
+    """Bug 修复:Windows 裸跑重启必须经 relauncher 接力,守护场景直接退出。"""
+    import types
+
+    from app import updater
+
+    spawned: list[list[str]] = []
+    exited: list[int] = []
+
+    def _fake_exit(code: int = 0):
+        exited.append(code)
+        raise SystemExit(code)  # 真实 os._exit 不会返回,用异常模拟进程终止
+
+    real_os = updater.os
+    real_spawn = updater._spawn_detached
+    try:
+        fake_os = types.SimpleNamespace(
+            name="nt",
+            getenv=lambda key, default=None: default,
+            execv=lambda *a: (_ for _ in ()).throw(AssertionError("不应走 execv")),
+            _exit=_fake_exit,
+        )
+        updater.os = fake_os
+        updater._spawn_detached = spawned.append
+        try:
+            updater._restart_process(port=8000)
+        except SystemExit:
+            pass
+        assert len(spawned) == 1 and exited == [0]
+        cmd = spawned[0]
+        assert any("relauncher.py" in part for part in cmd), cmd
+        assert "--port" in cmd and "8000" in cmd, cmd
+        assert "--" in cmd and cmd.index("--") < len(cmd) - 1, cmd
+    finally:
+        updater.os = real_os
+        updater._spawn_detached = real_spawn
+    print("PASS: Windows 裸跑重启经 relauncher 接力(含端口等待)")
+
+
+def test_restart_process_windows_supervised_exits():
+    """Bug 修复:Windows 守护场景直接 _exit,不启动接力器也不 execv。"""
+    import types
+
+    from app import updater
+
+    spawned: list[list[str]] = []
+    exited: list[int] = []
+
+    def _fake_exit(code: int = 0):
+        exited.append(code)
+        raise SystemExit(code)
+
+    real_os = updater.os
+    real_spawn = updater._spawn_detached
+    try:
+        fake_os = types.SimpleNamespace(
+            name="nt",
+            getenv=lambda key, default=None: "1" if key == "INVOCATION_ID" else default,
+            execv=lambda *a: (_ for _ in ()).throw(AssertionError("不应走 execv")),
+            _exit=_fake_exit,
+        )
+        updater.os = fake_os
+        updater._spawn_detached = spawned.append
+        try:
+            updater._restart_process(port=8000)
+        except SystemExit:
+            pass
+        assert spawned == [] and exited == [0], (spawned, exited)
+    finally:
+        updater.os = real_os
+        updater._spawn_detached = real_spawn
+    print("PASS: Windows 守护场景重启直接退出交由守护进程拉起")
+
+
+async def test_run_updater_task_guard():
+    """Bug 修复:更新/回滚任务异常不再让 state 卡死导致 409 永久拒绝。"""
+    from app.web import _run_updater_task
+
+    # 异常路径:state 落为 failed 并带错误信息
+    status_info = {"state": "pulling", "log": [], "error": None}
+
+    async def _boom():
+        raise RuntimeError("模拟 git 不存在 FileNotFoundError 之类的逃逸异常")
+
+    await _run_updater_task(_boom(), status_info, "更新")
+    assert status_info["state"] == "failed", status_info
+    assert "更新任务内部错误" in (status_info["error"] or ""), status_info
+    assert any("内部错误" in line for line in status_info["log"]), status_info
+
+    # 正常路径:不干预业务自己的状态推进
+    status_ok = {"state": "pulling", "log": [], "error": None}
+
+    async def _fine():
+        status_ok["state"] = "ready_to_restart"
+
+    await _run_updater_task(_fine(), status_ok, "回滚")
+    assert status_ok["state"] == "ready_to_restart" and status_ok["error"] is None
+    print("PASS: 更新/回滚任务异常兜底(异常落 failed,正常不干预)")
+
+
 async def main():
     await test_summarize_metrics_keyerror()
     await test_recent_events_default_30d()
@@ -276,6 +405,10 @@ async def main():
     test_keyword_validate_payload()
     test_keyword_save_and_reload()
     await test_join_prompt_sent_once()
+    test_relauncher_wait_for_port_free()
+    test_restart_process_windows_uses_relauncher()
+    test_restart_process_windows_supervised_exits()
+    await test_run_updater_task_guard()
     print("\n全部回归验证通过")
 
 

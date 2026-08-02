@@ -4,7 +4,8 @@
 - run_update(): 更新到最新 Release 并准备重启：
   - git 部署：`git pull --ff-only` + `pip install -r requirements.txt`
   - 非 git 部署：下载 Release 源码压缩包，备份现有代码后覆盖（保留 data/、.env、ssl/）
-  成功后由调用方触发进程重启（os.execv 自我替换）。
+  成功后由调用方触发进程重启（POSIX 用 os.execv 自我替换；Windows 裸跑经
+  relauncher 接力器等端口释放后拉起新实例）。
 - run_rollback(): 回滚到更新前状态（git reset --hard / 还原代码备份）后重启。
 - 更新前自动备份 data/ 目录到 backups/（保留最近 5 份）。
 """
@@ -470,7 +471,22 @@ def _spawn_detached(cmd: list[str]) -> None:
     subprocess.Popen(cmd, **kwargs)
 
 
-def _restart_process() -> None:
+def _windows_relaunch_command(port: int = 0) -> list[str]:
+    """构造 Windows 裸跑重启命令:接力器先等端口释放,再拉起新实例。
+
+    直接 _spawn_detached([python] + argv) 会有端口竞争:子进程毫秒级内
+    尝试 bind,而父进程的监听 socket(及浏览器会话留下的 TIME_WAIT 连接)
+    尚未被内核回收,子进程撞上 Address already in use 后无重试直接死掉,
+    服务永久掉线。接力器(app/relauncher.py)等端口真正可 bind 后再启动。
+    """
+    relauncher = Path(__file__).resolve().parent / "relauncher.py"
+    cmd = [sys.executable, str(relauncher)]
+    if port > 0:
+        cmd += ["--port", str(port)]
+    return cmd + ["--", sys.executable] + sys.argv
+
+
+def _restart_process(port: int = 0) -> None:
     cmd = [sys.executable] + sys.argv
     logger.info("正在重启进程：%s", cmd)
     if os.name != "nt":
@@ -479,18 +495,22 @@ def _restart_process() -> None:
     if _is_under_process_supervisor():
         # Windows + 守护进程：直接退出，由守护进程拉起新实例
         os._exit(0)
-    # Windows 裸跑：os.execv 无法干净移交事件循环与 socket 句柄，
-    # 改为启动独立子进程接管，随后本进程退出释放端口
-    _spawn_detached(cmd)
+    # Windows 裸跑：os.execv 无法干净移交事件循环与 socket 句柄;
+    # 经接力器等端口释放后再拉起新实例,本进程随即退出
+    _spawn_detached(_windows_relaunch_command(port))
     os._exit(0)
 
 
-def schedule_restart(delay_seconds: float = 2.0) -> None:
-    """延迟后重启进程。延迟是为了让 HTTP 响应先送回浏览器。"""
+def schedule_restart(delay_seconds: float = 2.0, port: int = 0) -> None:
+    """延迟后重启进程。延迟是为了让 HTTP 响应先送回浏览器。
+
+    port 是 Web 监听端口(WEB_PORT),用于 Windows 裸跑场景由接力器
+    等待端口释放;传 0 表示不检测(固定延迟后直接启动)。
+    """
 
     async def _restart() -> None:
         await asyncio.sleep(delay_seconds)
-        _restart_process()
+        _restart_process(port)
 
     try:
         loop = asyncio.get_running_loop()
@@ -498,4 +518,4 @@ def schedule_restart(delay_seconds: float = 2.0) -> None:
     except RuntimeError:  # pragma: no cover - 非事件循环环境
         import threading
 
-        threading.Timer(delay_seconds, _restart_process).start()
+        threading.Timer(delay_seconds, _restart_process, args=(port,)).start()

@@ -72,6 +72,21 @@ ADMIN_CSRF_COOKIE_NAME = "kk_admin_csrf"
 SESSION_MAX_TOTAL = 5000  # 全局硬上限,防止内存爆炸
 
 
+async def _run_updater_task(coro, status_info: dict, label: str) -> None:
+    """执行更新/回滚协程的兜底包装。
+
+    任何未捕获异常都落入 status_info 并记日志,避免 state 停在
+    pulling/installing/rolling_back 导致 409 守卫永久拒绝后续任务。
+    """
+    try:
+        await coro
+    except Exception as exc:  # pragma: no cover - 防御性兜底
+        logger.exception("%s任务出现未捕获异常", label)
+        status_info["state"] = "failed"
+        status_info["error"] = f"{label}任务内部错误：{exc}"
+        status_info.setdefault("log", []).append(f"❌ 内部错误：{exc!r}")
+
+
 def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI:
     app = FastAPI(title="Telegram Join Verification")
 
@@ -728,7 +743,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                     settings,
                     f"✅ 已更新到 {info.get('latest')}，服务即将自动重启",
                 )
-                schedule_restart(2.0)
+                schedule_restart(2.0, port=settings.web_port)
             else:
                 await notify_admins(
                     app.state.bot,
@@ -736,7 +751,8 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                     f"❌ 更新失败：{status_info.get('error') or '请查看后台日志'}",
                 )
 
-        asyncio.create_task(_do_update())
+        task = asyncio.create_task(_run_updater_task(_do_update(), status_info, "更新"))
+        app.state.update_task = task  # 持有强引用,防止后台任务被 GC 提前回收
         return JSONResponse({"status": "started", "target": info.get("latest")})
 
     @app.post("/admin/api/rollback")
@@ -771,7 +787,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                     "↩️ 已回滚到更新前状态，服务即将自动重启\n"
                     f"操作人：{session.get('name')} ({session.get('user_id')})",
                 )
-                schedule_restart(2.0)
+                schedule_restart(2.0, port=settings.web_port)
             else:
                 await notify_admins(
                     app.state.bot,
@@ -779,7 +795,8 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                     f"❌ 回滚失败：{status_info.get('error') or '请查看后台日志'}",
                 )
 
-        asyncio.create_task(_do_rollback())
+        task = asyncio.create_task(_run_updater_task(_do_rollback(), status_info, "回滚"))
+        app.state.update_task = task  # 持有强引用,防止后台任务被 GC 提前回收
         return JSONResponse({"status": "started"})
 
     @app.post("/admin/api/restart")
@@ -792,7 +809,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
             settings,
             f"🔁 服务被管理员手动重启\n操作人：{session.get('name')} ({session.get('user_id')})",
         )
-        schedule_restart(1.5)
+        schedule_restart(1.5, port=settings.web_port)
         return JSONResponse({"status": "restarting"})
 
     @app.post("/admin/api/shutdown")
