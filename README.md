@@ -335,6 +335,12 @@ SSL_KEY_FILE=ssl/your.key
 
 也可在前面挂 Nginx / Caddy / Cloudflare 反代，此时可把 `ADMIN_BEHIND_PROXY=true`。
 
+## 监控（可选）
+
+设置 `ENABLE_METRICS=true` 后，Bot 在 Web 端口暴露 Prometheus `/metrics` 端点（消息处理、验证结果、LLM 延迟/并发、Redis 降级等）。
+
+`monitoring/` 目录附带一个现成的 **Grafana 仪表盘模板**（`grafana-dashboard.json`，13 个面板），直接导入你已有的 Grafana 即可使用，另附 Prometheus 抓取配置片段和推荐告警规则，详见 [monitoring/README.md](monitoring/README.md)。
+
 ## 项目结构
 
 ```
@@ -351,6 +357,8 @@ config/
   ad_guard_rules.json     # 广告规则（支持热重载）
   keyword_replies.json    # 关键词回复规则（热重载，可在后台编辑）
   keyword_deletions.json  # 关键词删除规则（热重载，可在后台编辑）
+monitoring/
+  grafana-dashboard.json  # Grafana 仪表盘模板（导入即用）
 test_fixes.py             # 回归测试（.venv 下运行：python test_fixes.py）
 ```
 
