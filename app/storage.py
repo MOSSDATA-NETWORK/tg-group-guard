@@ -82,20 +82,28 @@ class VerificationStore:
         # token 级串行化锁,防止同一 token 被并发请求重复处理
         # (虽然 mark_verified 有 WHERE status='pending' 保护,但
         # lift_restrictions/announce_group_success 仍可能执行两次)
-        self._token_locks: dict[str, asyncio.Lock] = {}
+        # 值 = [锁, 引用计数]；只有引用归零且锁空闲时才从字典移除,
+        # 避免释放时 pop 掉仍有等待者的锁导致并发穿越（TOCTOU）
+        self._token_locks: dict[str, list] = {}
         self._token_locks_guard = asyncio.Lock()
 
     async def acquire_token_lock(self, token: str) -> asyncio.Lock:
         async with self._token_locks_guard:
-            lock = self._token_locks.get(token)
-            if lock is None:
-                lock = asyncio.Lock()
-                self._token_locks[token] = lock
-            return lock
+            entry = self._token_locks.get(token)
+            if entry is None:
+                entry = [asyncio.Lock(), 0]
+                self._token_locks[token] = entry
+            entry[1] += 1
+            return entry[0]
 
     async def release_token_lock(self, token: str) -> None:
         async with self._token_locks_guard:
-            self._token_locks.pop(token, None)
+            entry = self._token_locks.get(token)
+            if entry is None:
+                return
+            entry[1] -= 1
+            if entry[1] <= 0 and not entry[0].locked():
+                self._token_locks.pop(token, None)
 
     async def connect(self) -> None:
         if self._db is not None:

@@ -57,6 +57,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
     settings = services.settings
     store = services.store
     score_manager = services.score_manager
+    metrics = services.metrics
     history_store = services.history_store
     ad_review_store = services.ad_review_store
     ad_vote_store = services.ad_vote_store
@@ -352,16 +353,28 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             source = "rule"
             flagged, confidence = (True, 1.0)
         else:
-            guard_payload = format_context_for_prompt(previous_entries, current_entry)
-            logger.debug(
-                "广告检测请求上下文 chat_id=%s user_id=%s msg_id=%s payload_length=%s payload_preview=%s",
-                chat_id,
-                message.from_user.id,
-                message.message_id,
-                len(guard_payload),
-                truncate_for_logging(guard_payload),
-            )
-            flagged, confidence = await pipeline.check(guard_payload, message=message)
+            # 短消息跳过 LLM 检测，节省配额；启发式规则（上方）不受此限制
+            min_length = settings.ad_guard_min_length or 0
+            if min_length > 0 and len(text.strip()) < min_length:
+                logger.debug(
+                    "消息长度 %s 低于 AD_GUARD_MIN_LENGTH=%s，跳过 LLM 检测 chat_id=%s user_id=%s",
+                    len(text.strip()),
+                    min_length,
+                    chat_id,
+                    message.from_user.id,
+                )
+                flagged, confidence = (False, None)
+            else:
+                guard_payload = format_context_for_prompt(previous_entries, current_entry)
+                logger.debug(
+                    "广告检测请求上下文 chat_id=%s user_id=%s msg_id=%s payload_length=%s payload_preview=%s",
+                    chat_id,
+                    message.from_user.id,
+                    message.message_id,
+                    len(guard_payload),
+                    truncate_for_logging(guard_payload),
+                )
+                flagged, confidence = await pipeline.check(guard_payload, message=message)
 
         logger.debug(
             "广告检测结果 chat_id=%s user_id=%s msg_id=%s flagged=%s confidence=%s length=%s context=%s",
@@ -490,8 +503,12 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 new_count,
                 qualified,
             )
+            if metrics is not None:
+                metrics.record_message(result="ad_passed", chat_id=chat_id)
             return
 
+        if metrics is not None:
+            metrics.record_message(result="ad_flagged", chat_id=chat_id)
         score_after_penalty = await score_manager.adjust_score(chat_id, user_id, -1)
         logger.debug(
             "广告判定扣分 chat_id=%s user_id=%s score=%s",
@@ -673,6 +690,14 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         _ad_guard_on = resolve_chat(settings, _cid, "ad_guard_enabled")
         _msg_ttl = resolve_chat(settings, _cid, "message_ttl_seconds")
 
+        if (
+            metrics is not None
+            and message.chat.type in {"group", "supergroup"}
+            and message.from_user is not None
+            and not message.from_user.is_bot
+        ):
+            metrics.record_message(result="received", chat_id=_cid)
+
         # 关键词自动回复:独立于广告守卫开关;编辑消息不触发,避免重复回复
         if (
             not is_edit
@@ -709,6 +734,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             if kd_rules:
                 deleted = await try_keyword_deletion(bot, message, rules=kd_rules)
                 if deleted:
+                    if metrics is not None:
+                        metrics.record_message(result="keyword_deleted", chat_id=_cid)
                     return
 
         if not _ad_guard_on:

@@ -896,6 +896,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
             return JSONResponse({"status": "already_verified"})
         if record.expire_at <= now:
             await store.mark_failed(token, now)
+            _record_verification_metric(app, "expired")
             await ban_and_cleanup(app.state.bot, store, record, reason="expired_via_web")
             return JSONResponse({"status": "expired"})
 
@@ -909,6 +910,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                     return JSONResponse({"status": "already_verified"})
                 if record2.expire_at <= datetime.now(tz=UTC):
                     await store.mark_failed(token, datetime.now(tz=UTC))
+                    _record_verification_metric(app, "expired")
                     await ban_and_cleanup(
                         app.state.bot, store, record2, reason="expired_via_web"
                     )
@@ -960,6 +962,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
             # 异常路径也要释放,避免 _token_locks 常驻残留
             await store.release_token_lock(token)
 
+        _record_verification_metric(app, "verified")
         return JSONResponse({"status": "ok"})
 
     return app
@@ -1058,6 +1061,17 @@ async def _require_admin_session(request: Request, *, api: bool) -> dict | Redir
 
 
 __all__ = ["create_web_app"]
+
+
+def _record_verification_metric(app, result: str) -> None:
+    """安全记录验证结果指标；指标未启用或异常时不影响主流程。"""
+    metrics = getattr(app.state, "metrics", None)
+    if metrics is None:
+        return
+    try:
+        metrics.record_verification(result=result)
+    except Exception:  # pragma: no cover - 指标异常不阻断
+        pass
 
 
 # 保留 Optional 占位,兼容历史导入

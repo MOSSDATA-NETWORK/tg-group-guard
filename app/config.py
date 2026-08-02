@@ -227,7 +227,7 @@ def load_settings() -> Settings:
     if ad_guard_provider not in {"ollama", "openai"}:
         raise RuntimeError("AD_GUARD_PROVIDER 仅支持 'ollama' 或 'openai'")
     ad_guard_threshold = float(_read_env("AD_GUARD_THRESHOLD", "0.8"))
-    # 兼容旧配置；广告检测已不再按长度跳过
+    # 短消息跳过 LLM 检测（0 = 不跳过）；启发式规则不受此限制
     ad_guard_min_length = max(int(_read_env("AD_GUARD_MIN_LENGTH", "0")), 0)
     log_level = _read_env("LOG_LEVEL", "INFO").strip().upper() or "INFO"
     ollama_endpoint = _read_env("OLLAMA_ENDPOINT", "") or None

@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -253,10 +254,11 @@ def _safe_extract_tar(data: bytes, dest: Path, log: list[str]) -> Path:
         if not members:
             raise RuntimeError("Release 压缩包为空")
         root_name = members[0].name.split("/")[0]
+        dest_resolved = str(dest.resolve()) + os.sep
         for member in members:
-            # 防路径穿越
+            # 防路径穿越：必须严格位于 dest 之内（含分隔符，排除同前缀兄弟目录）
             member_path = (dest / member.name).resolve()
-            if not str(member_path).startswith(str(dest.resolve())):
+            if not str(member_path).startswith(dest_resolved):
                 raise RuntimeError("压缩包包含非法路径，已中止")
         tf.extractall(dest, filter="data")
     return dest / root_name
@@ -402,9 +404,10 @@ async def run_rollback(status: dict[str, Any]) -> bool:
             # 还原快照中的文件；更新新引入的文件不会被删除，
             # 但旧代码不会引用它们，不影响回滚后的运行
             with zipfile.ZipFile(backup) as zf:
+                root_prefix = str(PROJECT_ROOT) + os.sep
                 for name in zf.namelist():
                     target = (PROJECT_ROOT / name).resolve()
-                    if not str(target).startswith(str(PROJECT_ROOT)):
+                    if not str(target).startswith(root_prefix):
                         continue
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(name) as src, target.open("wb") as dst:
@@ -443,18 +446,51 @@ def schedule_shutdown(delay_seconds: float = 1.5, exit_code: int = 0) -> None:
         threading.Timer(delay_seconds, lambda: os._exit(exit_code)).start()
 
 
-def schedule_restart(delay_seconds: float = 2.0) -> None:
-    """延迟后用 os.execv 替换当前进程，实现自我重启。
+def _is_under_process_supervisor() -> bool:
+    """检测常见进程守护环境：systemd / pm2 / k8s（它们会自动拉起退出的进程）。"""
+    return bool(
+        os.getenv("INVOCATION_ID")            # systemd
+        or os.getenv("PM2_USAGE")             # pm2
+        or os.getenv("PM2_HOME")              # pm2
+        or os.getenv("KUBERNETES_SERVICE_HOST")  # k8s
+    )
 
-    延迟是为了让 HTTP 响应先送回浏览器。os.execv 要求进程以
-    `python -m app.main` 或脚本方式启动；sys.argv 原样保留。
+
+def _spawn_detached(cmd: list[str]) -> None:
+    """以独立进程方式启动新实例（Windows 裸跑场景）。
+
+    标准流保持继承：父进程退出后控制台窗口仍在，子进程可继续输出日志。
     """
+    kwargs: dict[str, Any] = {"close_fds": True}
+    if os.name == "nt":
+        # 脱离进程组，避免父进程退出/收到 Ctrl+C 时子进程被一起终止
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(cmd, **kwargs)
+
+
+def _restart_process() -> None:
+    cmd = [sys.executable] + sys.argv
+    logger.info("正在重启进程：%s", cmd)
+    if os.name != "nt":
+        # POSIX：execv 原地替换，PID 不变，systemd/pm2 无感知，最干净
+        os.execv(sys.executable, cmd)
+    if _is_under_process_supervisor():
+        # Windows + 守护进程：直接退出，由守护进程拉起新实例
+        os._exit(0)
+    # Windows 裸跑：os.execv 无法干净移交事件循环与 socket 句柄，
+    # 改为启动独立子进程接管，随后本进程退出释放端口
+    _spawn_detached(cmd)
+    os._exit(0)
+
+
+def schedule_restart(delay_seconds: float = 2.0) -> None:
+    """延迟后重启进程。延迟是为了让 HTTP 响应先送回浏览器。"""
 
     async def _restart() -> None:
         await asyncio.sleep(delay_seconds)
-        logger.info("正在重启进程：%s %s", sys.executable, sys.argv)
-        # flush 日志后 exec；Windows / Linux 均支持 os.execv
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        _restart_process()
 
     try:
         loop = asyncio.get_running_loop()
@@ -462,4 +498,4 @@ def schedule_restart(delay_seconds: float = 2.0) -> None:
     except RuntimeError:  # pragma: no cover - 非事件循环环境
         import threading
 
-        threading.Timer(delay_seconds, lambda: os.execv(sys.executable, [sys.executable] + sys.argv)).start()
+        threading.Timer(delay_seconds, _restart_process).start()

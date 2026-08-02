@@ -71,9 +71,11 @@ async def main() -> None:
         await redis_client.ping()
     except RedisError as exc:
         raise RuntimeError(f'无法连接 Redis: {exc}') from exc
-    score_manager = RedisDailyScoreManager(redis_client, settings.redis_score_prefix)
 
     metrics = build_metrics(settings.enable_metrics)
+    score_manager = RedisDailyScoreManager(
+        redis_client, settings.redis_score_prefix, metrics=metrics
+    )
 
     bot = create_bot(settings, store)
     await sync_bot_commands(bot)
@@ -175,7 +177,9 @@ async def main() -> None:
 
     bot_task = asyncio.create_task(run_polling_with_retry())
     web_task = asyncio.create_task(run_web())
-    cleanup_task = asyncio.create_task(run_cleanup_scheduler(bot, store, settings.cleanup_interval_seconds))
+    cleanup_task = asyncio.create_task(
+        run_cleanup_scheduler(bot, store, settings.cleanup_interval_seconds, metrics=metrics)
+    )
     update_task = (
         asyncio.create_task(run_update_checker())
         if settings.update_check_enabled

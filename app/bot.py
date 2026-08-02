@@ -15,7 +15,6 @@ except ModuleNotFoundError as exc:
 from .ad_guard_rules import configure_ad_guard_rules
 from .keyword_deletions import configure_keyword_deletions
 from .keyword_replies import configure_keyword_replies
-from .keyword_replies import configure_keyword_replies
 from .bot_components.scoring import RedisDailyScoreManager
 from .config import Settings
 from .routers import (
@@ -68,8 +67,6 @@ def create_dispatcher(
     configure_ad_guard_rules(settings.ad_guard_rules_file)
     configure_keyword_replies(settings.keyword_reply_rules_file)
     configure_keyword_deletions(settings.keyword_deletion_rules_file)
-    configure_ad_guard_rules(settings.ad_guard_rules_file)
-    configure_keyword_replies(settings.keyword_reply_rules_file)
 
     services = BotServices(
         settings=settings,
@@ -78,6 +75,7 @@ def create_dispatcher(
         history_store=MessageHistoryStore(),
         ad_review_store=AdReviewStore(on_expire=store.delete_ad_deletion),
         ad_vote_store=AdVoteStore(),
+        metrics=metrics,
     )
 
     if pipeline is None:

@@ -25,6 +25,8 @@ class BotServices:
     history_store: MessageHistoryStore
     ad_review_store: AdReviewStore
     ad_vote_store: AdVoteStore
+    # 可选指标对象（NullMetrics/PrometheusMetrics），未注入时为 None
+    metrics: object = None
 
 
 __all__ = ["BotServices"]

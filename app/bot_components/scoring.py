@@ -20,6 +20,8 @@ class RedisDailyScoreManager:
 
     client: Redis
     key_prefix: str
+    # 可选指标对象（NullMetrics/PrometheusMetrics），用于暴露 Redis 降级状态
+    metrics: object = None
     # 进程内缓存,key=(chat_id, user_id),value=score
     # 仅在 Redis 写入成功时更新,故障期间不更新
     _cache: Dict[Tuple[int, int], int] = field(default_factory=dict, repr=False)
@@ -111,8 +113,12 @@ class RedisDailyScoreManager:
         if not self._degraded_logged:
             logger.warning(msg, *args)
             self._degraded_logged = True
+            if self.metrics is not None:
+                self.metrics.set_score_redis_degraded(1)
 
     def _clear_degraded_flag(self) -> None:
+        if self._degraded_logged and self.metrics is not None:
+            self.metrics.set_score_redis_degraded(0)
         self._degraded_logged = False
 
     def _build_key(self, chat_id: int, user_id: int) -> str:

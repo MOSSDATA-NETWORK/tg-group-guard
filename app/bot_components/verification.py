@@ -79,7 +79,7 @@ async def ban_and_cleanup(
         raise
 
 
-async def cleanup_expired_records(bot: Bot, store: VerificationStore) -> None:
+async def cleanup_expired_records(bot: Bot, store: VerificationStore, metrics=None) -> None:
     expired_records = await store.fetch_expired()
     if not expired_records:
         return
@@ -89,6 +89,8 @@ async def cleanup_expired_records(bot: Bot, store: VerificationStore) -> None:
         updated = await store.mark_failed(record.token, now)
         if not updated:
             continue
+        if metrics is not None:
+            metrics.record_verification(result="expired")
         try:
             await store.record_verification_event(
                 chat_id=record.chat_id,
@@ -113,10 +115,11 @@ async def run_cleanup_scheduler(
     bot: Bot,
     store: VerificationStore,
     interval_seconds: int,
+    metrics=None,
 ) -> None:
     try:
         while True:
-            await cleanup_expired_records(bot, store)
+            await cleanup_expired_records(bot, store, metrics=metrics)
             await asyncio.sleep(interval_seconds)
     except asyncio.CancelledError:
         raise

@@ -104,12 +104,12 @@ async def handle_low_score_violation(
 
     display_name = escape(message.from_user.full_name or str(user_id))
     if kick_only:
-        action_suffix = "已移出（未封禁，今日评分过低）。"
+        action_suffix = "已移出（未封禁，累计评分过低）。"
     else:
         action_suffix = "已移出并拉黑。"
 
     notice = (
-        f"🚫 <a href='tg://user?id={user_id}'>{display_name}</a> 今日评分 {score_after} ≤ "
+        f"🚫 <a href='tg://user?id={user_id}'>{display_name}</a> 累计评分 {score_after} ≤ "
         f"{settings.ad_guard_score_ban_threshold}，{action_suffix}"
     )
     await send_message_with_ttl(

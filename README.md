@@ -165,7 +165,7 @@ diff .env.example .env
 | `AD_VOTE_DURATION_SECONDS` | `30` | 广告复核投票持续时长 |
 | `AD_GUARD_LLM_CONCURRENCY` | `4` | LLM 检测并发上限（保护本地 Ollama） |
 | `AD_GUARD_RULES_FILE` | `config/ad_guard_rules.json` | 启发式规则文件，支持热重载 |
-| `AD_GUARD_MIN_LENGTH` | `0` | 已废弃，仅为兼容旧配置保留 |
+| `AD_GUARD_MIN_LENGTH` | `0` | 消息长度低于该值时跳过 LLM 检测（0 = 全检）；启发式规则不受限制 |
 
 > 判定策略速览：本地规则命中或 LLM 置信度 ≥ 0.95 → 跳过投票直接封禁；低于阈值 → 放行；中间档 → 群内限时投票，"不是广告"票必须严格多于"广告"票才放行（平票/0 票维持原判）。未封禁时管理员可通过按钮复核"立即封禁 / 这不是广告"，复核恢复会退还误扣评分。
 
