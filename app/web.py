@@ -933,22 +933,31 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                     )
                     return JSONResponse({"status": "expired"})
 
+                # 先解禁、后落库:解禁失败时记录保持 pending,用户可重试;
+                # 若先落库再解禁失败,记录停在 verified,用户会被永久禁言且无恢复路径
+                success = await lift_restrictions(app.state.bot, record2)
+                if not success:
+                    await notify_admins(
+                        app.state.bot,
+                        settings,
+                        f"⚠️ 用户 {record2.user_id} 完成验证但解除禁言失败"
+                        f"(机器人权限不足或网络异常)，请检查机器人权限后让用户重试。",
+                    )
+                    return JSONResponse(
+                        {
+                            "status": "bot_error",
+                            "message": "机器人暂时无法解除限制，请稍后重新打开本页面重试，或联系管理员。",
+                        },
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+
                 updated = await store.mark_verified(token, verified_at=now)
                 if not updated:
+                    # 并发请求已在等待锁期间完成落库;此时解禁幂等已成功,无副作用
                     return JSONResponse({"status": "already_verified"})
 
                 record2.status = "verified"
                 record2.verified_at = now
-
-                success = await lift_restrictions(app.state.bot, record2)
-                if not success:
-                    return JSONResponse(
-                        {
-                            "status": "bot_error",
-                            "message": "机器人没有足够的权限解除限制，请联系管理员。",
-                        },
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    )
 
                 await delete_prompt_message(app.state.bot, record2)
                 await notify_verification_success(app.state.bot, record2)

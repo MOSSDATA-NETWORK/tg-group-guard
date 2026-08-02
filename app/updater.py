@@ -282,6 +282,56 @@ def _copy_code_over(src_root: Path, log: list[str]) -> int:
     return count
 
 
+def _remove_stale_code(
+    snapshot: Path,
+    src_root: Path,
+    log: list[str],
+    dest_root: Optional[Path] = None,
+) -> int:
+    """删除"旧快照里有、新版本里没有"的 .py 文件及其 __pycache__。
+
+    _copy_code_over 只增不删:新版本删除/改名的模块残留后,
+    下次启动可能被误 import 遮蔽新代码。snapshot 是更新前
+    backup_code_snapshot 打的旧代码快照(文件清单在 zip namelist 里)。
+    """
+    dest_root = dest_root or PROJECT_ROOT
+    new_files = {
+        file.relative_to(src_root).as_posix()
+        for file in src_root.rglob("*")
+        if file.is_file()
+    }
+    try:
+        with zipfile.ZipFile(snapshot) as zf:
+            old_names = zf.namelist()
+    except (OSError, zipfile.BadZipFile) as exc:
+        log.append(f"⚠️ 读取代码快照失败，跳过废弃文件清理：{exc}")
+        return 0
+    removed = 0
+    for name in old_names:
+        rel = Path(name)
+        if rel.suffix != ".py" or rel.as_posix() in new_files:
+            continue
+        if any(part in _PRESERVE_NAMES for part in rel.parts):
+            continue
+        target = dest_root / rel
+        try:
+            target.unlink(missing_ok=True)
+            removed += 1
+            pycache = target.parent / "__pycache__"
+            if pycache.is_dir():
+                for pyc in pycache.glob(target.stem + ".*.pyc"):
+                    pyc.unlink(missing_ok=True)
+                try:
+                    pycache.rmdir()  # 仅在已清空时移除目录
+                except OSError:
+                    pass
+        except OSError as exc:
+            log.append(f"⚠️ 删除废弃文件失败 {rel.as_posix()}：{exc}")
+    if removed:
+        log.append(f"已清理 {removed} 个新版本中已移除的废弃代码文件")
+    return removed
+
+
 async def _download_tarball(url: str, log: list[str]) -> bytes:
     log.append(f"正在下载 Release 源码包：{url}")
     async with aiohttp.ClientSession(timeout=_DOWNLOAD_TIMEOUT) as session:
@@ -349,6 +399,7 @@ async def run_update(status: dict[str, Any], release: Optional[dict[str, Any]] =
             with tempfile.TemporaryDirectory() as tmp:
                 src_root = _safe_extract_tar(payload, Path(tmp), log)
                 _copy_code_over(src_root, log)
+                _remove_stale_code(snapshot, src_root, log)
         except (RuntimeError, tarfile.TarError, OSError) as exc:
             status["state"] = "failed"
             status["error"] = f"解压或覆盖代码失败：{exc}"
@@ -431,11 +482,12 @@ async def run_rollback(status: dict[str, Any]) -> bool:
 
 
 def schedule_shutdown(delay_seconds: float = 1.5, exit_code: int = 0) -> None:
-    """延迟后退出进程（用于管理员主动关停）。"""
+    """延迟后退出进程（用于管理员主动关停）。退出前执行关闭钩子。"""
 
     async def _shutdown() -> None:
         await asyncio.sleep(delay_seconds)
         logger.warning("管理员请求关停服务，进程即将退出 (exit=%s)", exit_code)
+        await _run_shutdown_hooks()
         os._exit(exit_code)
 
     try:
@@ -444,17 +496,75 @@ def schedule_shutdown(delay_seconds: float = 1.5, exit_code: int = 0) -> None:
     except RuntimeError:  # pragma: no cover
         import threading
 
-        threading.Timer(delay_seconds, lambda: os._exit(exit_code)).start()
+        def _threaded() -> None:
+            try:
+                asyncio.run(_run_shutdown_hooks())
+            except Exception:
+                pass
+            os._exit(exit_code)
+
+        threading.Timer(delay_seconds, _threaded).start()
+
+
+def _looks_like_container() -> bool:
+    """Docker / 容器环境检测:/.dockerenv、cgroup 特征、PID 1。"""
+    if os.name == "nt":
+        return False
+    try:
+        if os.path.exists("/.dockerenv"):
+            return True
+    except OSError:
+        pass
+    try:
+        with open("/proc/1/cgroup", "r", encoding="utf-8", errors="ignore") as fh:
+            content = fh.read()
+        if any(tag in content for tag in ("docker", "containerd", "kubepods")):
+            return True
+    except OSError:
+        pass
+    try:
+        return os.getpid() == 1
+    except OSError:
+        return False
 
 
 def _is_under_process_supervisor() -> bool:
-    """检测常见进程守护环境：systemd / pm2 / k8s（它们会自动拉起退出的进程）。"""
+    """检测进程守护/容器环境(systemd / pm2 / k8s / Docker)或显式标记。
+
+    NSSM、Windows 任务计划程序等无可靠环境标记,
+    需在 .env 中显式设置 PROCESS_SUPERVISED=true。
+    漏判后果:守护程序拉起旧实例的同时本进程又接力拉起新实例 → 双实例
+    抢 getUpdates(409 Conflict 死循环)并抢 Web 端口。
+    """
+    if os.getenv("PROCESS_SUPERVISED", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
     return bool(
         os.getenv("INVOCATION_ID")            # systemd
         or os.getenv("PM2_USAGE")             # pm2
         or os.getenv("PM2_HOME")              # pm2
         or os.getenv("KUBERNETES_SERVICE_HOST")  # k8s
+        or _looks_like_container()            # Docker / 容器
     )
+
+
+# ===== 关闭钩子(优雅退出) =====
+# os._exit / execv 会绕过 main.py 的资源收尾(store/bot/redis close)。
+# main.py 启动时注册收尾协程,退出前限时执行,把数据丢失窗口压到最小。
+_SHUTDOWN_HOOKS: list[Any] = []  # list[Callable[[], Awaitable[Any]]]
+
+
+def register_shutdown_hook(hook: Any) -> None:
+    """注册退出前执行的收尾协程(无参、返回 awaitable)。"""
+    _SHUTDOWN_HOOKS.append(hook)
+
+
+async def _run_shutdown_hooks(timeout: float = 3.0) -> None:
+    """限时执行全部关闭钩子;单个失败/超时只记日志,不阻塞退出。"""
+    for hook in _SHUTDOWN_HOOKS:
+        try:
+            await asyncio.wait_for(hook(), timeout=timeout)
+        except Exception as exc:
+            logger.warning("关闭钩子执行失败(忽略,继续退出): %r", exc)
 
 
 def _spawn_detached(cmd: list[str]) -> None:
@@ -510,6 +620,7 @@ def schedule_restart(delay_seconds: float = 2.0, port: int = 0) -> None:
 
     async def _restart() -> None:
         await asyncio.sleep(delay_seconds)
+        await _run_shutdown_hooks()
         _restart_process(port)
 
     try:
@@ -518,4 +629,11 @@ def schedule_restart(delay_seconds: float = 2.0, port: int = 0) -> None:
     except RuntimeError:  # pragma: no cover - 非事件循环环境
         import threading
 
-        threading.Timer(delay_seconds, _restart_process, args=(port,)).start()
+        def _threaded() -> None:
+            try:
+                asyncio.run(_run_shutdown_hooks())
+            except Exception:
+                pass
+            _restart_process(port)
+
+        threading.Timer(delay_seconds, _threaded).start()

@@ -531,23 +531,18 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         else:
             await asyncio.sleep(1)
             try:
-                delete_success = await bot.delete_message(chat_id, message.message_id)
-                if not delete_success:
-                    logger.warning(
-                        "广告消息删除返回 False chat_id=%s msg_id=%s",
-                        chat_id,
-                        message.message_id,
-                    )
-                    return
+                # aiogram 3:删除成功恒返回 True,失败抛异常(无 False 分支)
+                await bot.delete_message(chat_id, message.message_id)
             except TelegramBadRequest as exc:
+                # 删除失败(无权限/消息已不存在)不豁免后续处理,
+                # 继续执行封禁与决策日志
                 logger.warning(
-                    "广告消息删除失败 chat_id=%s msg_id=%s error=%s",
+                    "广告消息删除失败(继续执行封禁/通知) chat_id=%s msg_id=%s error=%s",
                     chat_id,
                     message.message_id,
                     exc,
                     exc_info=exc,
                 )
-                return
 
         action_suffix = ""
         ban_success = force_ban_triggered
@@ -709,7 +704,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         ):
             kw_rules, kw_cooldown = get_keyword_reply_config()
             if kw_rules:
-                await try_keyword_reply(
+                replied = await try_keyword_reply(
                     bot,
                     message,
                     rules=kw_rules,
@@ -720,6 +715,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     ),
                     ttl=_msg_ttl,
                 )
+                if replied and metrics is not None:
+                    metrics.record_message(result="keyword_replied", chat_id=_cid)
 
         # 关键词自动删除:独立于广告守卫开关;编辑消息不触发
         if (

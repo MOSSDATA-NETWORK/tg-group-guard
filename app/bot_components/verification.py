@@ -143,10 +143,13 @@ async def _acquire_join_lock(chat_id: int, user_id: int) -> asyncio.Lock:
         if lock is None:
             lock = asyncio.Lock()
             _JOIN_LOCKS[(chat_id, user_id)] = lock
-            # 兜底清理,防字典无限增长
+            # 兜底清理,防字典无限增长;只踢空闲锁,
+            # 在用锁(可能正卡在网络 IO)若被踢掉会导致同一用户双 handler 并发
             if len(_JOIN_LOCKS) > 10000:
                 for key in list(_JOIN_LOCKS)[:5000]:
-                    _JOIN_LOCKS.pop(key, None)
+                    candidate = _JOIN_LOCKS.get(key)
+                    if candidate is not None and not candidate.locked():
+                        _JOIN_LOCKS.pop(key, None)
         return lock
 
 
@@ -386,6 +389,13 @@ async def lift_restrictions(bot: Bot, record: VerificationRecord) -> bool:
         return True
     except TelegramBadRequest as exc:
         logger.warning("解除限制失败 chat_id=%s user_id=%s error=%s", record.chat_id, record.user_id, exc)
+        return False
+    except Exception as exc:
+        # 网络/服务端异常同样视为失败:记录保持 pending,用户可重试(解禁幂等)
+        logger.warning(
+            "解除限制异常 chat_id=%s user_id=%s error=%r",
+            record.chat_id, record.user_id, exc, exc_info=exc,
+        )
         return False
 
 

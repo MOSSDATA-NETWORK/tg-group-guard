@@ -1,6 +1,7 @@
 """回归验证脚本：覆盖本次修复的关键路径。"""
 import asyncio
 import json
+import os
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -395,6 +396,206 @@ async def test_run_updater_task_guard():
     print("PASS: 更新/回滚任务异常兜底(异常落 failed,正常不干预)")
 
 
+async def test_lift_restrictions_never_raises():
+    """#3: lift_restrictions 对任意异常(含非 TelegramBadRequest)返回 False,不逃逸。"""
+    from types import SimpleNamespace as _SN
+
+    from app.bot_components.verification import lift_restrictions
+
+    class _Bot:
+        async def restrict_chat_member(self, **kwargs):
+            raise RuntimeError("模拟网络/服务端异常")
+
+    record = _SN(chat_id=-100, user_id=42)
+    assert await lift_restrictions(_Bot(), record) is False
+    print("PASS: lift_restrictions 全异常兜底返回 False(记录保持 pending 可重试)")
+
+
+async def test_shutdown_hooks_run_with_timeout():
+    """#4: 关闭钩子逐个执行,慢钩子被限时取消,不阻塞退出。"""
+    from app import updater
+
+    flags: list[str] = []
+
+    async def _fast():
+        flags.append("fast")
+
+    async def _slow():
+        await asyncio.sleep(10)
+
+    real_hooks = updater._SHUTDOWN_HOOKS
+    updater._SHUTDOWN_HOOKS = [_fast, _slow]
+    try:
+        start = datetime.now()
+        await updater._run_shutdown_hooks(timeout=0.3)
+        elapsed = (datetime.now() - start).total_seconds()
+        assert flags == ["fast"], flags
+        assert elapsed < 3, f"慢钩子未被限时取消,耗时 {elapsed:.2f}s"
+    finally:
+        updater._SHUTDOWN_HOOKS = real_hooks
+    print("PASS: 关闭钩子执行 + 超时取消正常")
+
+
+async def test_join_lock_eviction_keeps_locked():
+    """#5: _JOIN_LOCKS 清理只踢空闲锁,在用锁必须保留。"""
+    from app.bot_components import verification as ver
+
+    real_locks = ver._JOIN_LOCKS
+    ver._JOIN_LOCKS = {}
+    try:
+        held = await ver._acquire_join_lock(-100, 1)
+        await held.acquire()  # 处于 locked 状态
+        for i in range(10001):
+            await ver._acquire_join_lock(-100, 1000 + i)
+        assert (-100, 1) in ver._JOIN_LOCKS, "在用锁被误踢"
+        assert ver._JOIN_LOCKS[(-100, 1)] is held
+        held.release()
+    finally:
+        ver._JOIN_LOCKS = real_locks
+    print("PASS: 入群锁清理跳过在用锁")
+
+
+def test_supervisor_detection_extended():
+    """#6: PROCESS_SUPERVISED 显式标记 + Docker 容器特征识别。"""
+    import types
+
+    from app import updater
+
+    real_os = updater.os
+    try:
+        def _fake(getenv_map, *, exists_dockerenv=False, pid=123):
+            return types.SimpleNamespace(
+                name="posix",
+                getenv=lambda key, default=None: getenv_map.get(key, default),
+                path=types.SimpleNamespace(
+                    exists=lambda p: p == "/.dockerenv" and exists_dockerenv
+                ),
+                getpid=lambda: pid,
+            )
+
+        updater.os = _fake({})
+        assert updater._is_under_process_supervisor() is False
+        updater.os = _fake({"PROCESS_SUPERVISED": "true"})
+        assert updater._is_under_process_supervisor() is True
+        updater.os = _fake({}, exists_dockerenv=True)
+        assert updater._is_under_process_supervisor() is True
+        updater.os = _fake({}, pid=1)
+        assert updater._is_under_process_supervisor() is True
+        updater.os = _fake({"INVOCATION_ID": "abc"})
+        assert updater._is_under_process_supervisor() is True
+    finally:
+        updater.os = real_os
+    print("PASS: 守护检测(PROCESS_SUPERVISED/.dockerenv/PID1/systemd)正确")
+
+
+def test_single_instance_lock():
+    """#6: 存活实例持锁时拒绝启动;陈旧锁(进程已退出)可接管。"""
+    import subprocess as _sp
+
+    from app.instance_lock import ensure_single_instance
+
+    with tempfile.TemporaryDirectory() as tmp:
+        lock = Path(tmp) / "bot.lock"
+        # 另一个存活实例(常驻子进程)持锁 → SystemExit
+        alive = _sp.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        try:
+            lock.write_text(str(alive.pid), encoding="utf-8")
+            try:
+                ensure_single_instance(lock)
+                raise AssertionError("存活实例持锁时应退出")
+            except SystemExit as exc:
+                assert exc.code == 3
+        finally:
+            alive.kill()
+            alive.wait()
+        # 陈旧锁:用刚被杀掉的子进程 pid(已死亡)
+        lock.write_text(str(alive.pid), encoding="utf-8")
+        ensure_single_instance(lock)  # 不抛异常,接管锁
+        assert lock.read_text(encoding="utf-8") == str(os.getpid())
+    print("PASS: 单实例锁(存活拒绝/陈旧接管)正确")
+
+
+def test_remove_stale_code():
+    """#8: tarball 更新后删除"旧有新无"的 .py 及其 __pycache__,其他文件不动。"""
+    import zipfile as _zf
+
+    from app.updater import _remove_stale_code
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        src = root / "src"
+        (src / "app").mkdir(parents=True)
+        (src / "app" / "x.py").write_text("x=1", encoding="utf-8")
+        (src / "app" / "y.py").write_text("y=1", encoding="utf-8")
+
+        snapshot = root / "snapshot.zip"
+        with _zf.ZipFile(snapshot, "w") as zf:
+            zf.writestr("app/x.py", "old-x")      # 新旧都有 → 保留
+            zf.writestr("app/legacy.py", "old")   # 旧有新无 → 应删除
+            zf.writestr("app/readme.txt", "txt")  # 非 .py → 不处理
+
+        dest = root / "dest"
+        (dest / "app" / "__pycache__").mkdir(parents=True)
+        (dest / "app" / "x.py").write_text("x=1", encoding="utf-8")
+        (dest / "app" / "legacy.py").write_text("old", encoding="utf-8")
+        (dest / "app" / "__pycache__" / "legacy.cpython-312.pyc").write_bytes(b"pyc")
+
+        log: list[str] = []
+        removed = _remove_stale_code(snapshot, src, log, dest_root=dest)
+        assert removed == 1, (removed, log)
+        assert not (dest / "app" / "legacy.py").exists()
+        assert not (dest / "app" / "__pycache__" / "legacy.cpython-312.pyc").exists()
+        assert (dest / "app" / "x.py").exists()
+        assert any("清理 1 个" in line for line in log), log
+    print("PASS: 废弃代码文件清理(.py + __pycache__,其他不动)正确")
+
+
+async def test_regex_timeout_circuit_breaker():
+    """#10: regex 引擎免疫经典灾难模式;超时熔断与禁用名单逻辑正确。"""
+    import re as _re
+
+    from app import keyword_replies as kw
+
+    assert kw._regex_engine is not None, "测试环境需安装 regex 库"
+
+    # ① regex 引擎对经典灾难模式微秒级返回(标准库 re 同输入需秒级且指数恶化)
+    bad = kw.KeywordRule(reply="x", pattern=kw._regex_engine.compile(r"(a+)+$"))
+    start = datetime.now()
+    assert await kw.safe_rule_match(bad, "a" * 28 + "!") is False
+    assert (datetime.now() - start).total_seconds() < 0.5, "regex 引擎应免疫经典灾难模式"
+
+    # ② 超时被熔断:用假引擎模拟 TimeoutError,验证禁用名单逻辑
+    class _FakePattern:
+        pattern = "fake-redos"
+
+        def search(self, text, timeout=None):
+            raise TimeoutError()
+
+    class _FakeEngine:
+        Pattern = _FakePattern
+
+    real_engine = kw._regex_engine
+    kw._regex_engine = _FakeEngine
+    try:
+        rule = kw.KeywordRule(reply="x", pattern=_FakePattern())
+        assert await kw.safe_rule_match(rule, "aaa", timeout=0.01) is False
+        assert "fake-redos" in kw._DISABLED_PATTERNS
+        # 熔断后立即返回,不再执行匹配
+        start = datetime.now()
+        assert await kw.safe_rule_match(rule, "aaa", timeout=0.01) is False
+        assert (datetime.now() - start).total_seconds() < 0.1
+    finally:
+        kw._regex_engine = real_engine
+        kw._DISABLED_PATTERNS.discard("fake-redos")
+
+    # ③ 正常正则与纯关键词规则不受影响
+    good = kw.KeywordRule(reply="x", pattern=kw._regex_engine.compile(r"hello"))
+    assert await kw.safe_rule_match(good, "say hello") is True
+    kw_rule = kw.KeywordRule(reply="x", keywords=("hi",))
+    assert await kw.safe_rule_match(kw_rule, "hi there") is True
+    print("PASS: regex 引擎免疫灾难模式 + 超时熔断 + 正常规则不受影响")
+
+
 async def main():
     await test_summarize_metrics_keyerror()
     await test_recent_events_default_30d()
@@ -409,6 +610,13 @@ async def main():
     test_restart_process_windows_uses_relauncher()
     test_restart_process_windows_supervised_exits()
     await test_run_updater_task_guard()
+    await test_lift_restrictions_never_raises()
+    await test_shutdown_hooks_run_with_timeout()
+    await test_join_lock_eviction_keeps_locked()
+    test_supervisor_detection_extended()
+    test_single_instance_lock()
+    test_remove_stale_code()
+    await test_regex_timeout_circuit_breaker()
     print("\n全部回归验证通过")
 
 

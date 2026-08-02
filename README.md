@@ -193,6 +193,7 @@ diff .env.example .env
 | `WARN_LIMIT` | `3` | 本月警告达此次数自动封禁 |
 | `TELEGRAM_PROXY` | 空 | 访问 Bot API 的 socks5/http 代理 |
 | `ENABLE_METRICS` | `false` | Prometheus `/metrics` 端点（需 `pip install prometheus_client`） |
+| `PROCESS_SUPERVISED` | `false` | 进程由守护程序/容器管理时设 `true`（systemd/pm2/k8s/Docker 自动识别；NSSM、Windows 任务计划程序必须显式设置），否则更新后可能双实例 |
 
 ### Admin WebUI
 

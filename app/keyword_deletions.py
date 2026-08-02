@@ -17,6 +17,46 @@ from aiogram.types import Message
 
 logger = logging.getLogger(__name__)
 
+# ===== 正则 ReDoS 防护(与 keyword_replies 同款机制) =====
+# regex 库引擎内建规避经典灾难模式,并对残余病态模式提供原生 timeout;
+# 标准库 re 无超时且回溯失控时持有 GIL,线程池无法真正解救。
+try:
+    import regex as _regex_engine
+except ImportError:
+    _regex_engine = None
+
+if _regex_engine is None:
+    logger.warning("未安装 regex 库(pip install regex),关键词删除正则将无超时防护")
+
+_PATTERN_ERROR_TYPES = (re.error,) if _regex_engine is None else (re.error, _regex_engine.error)
+_REGEX_TIMEOUT_SECONDS = 0.5
+_DISABLED_PATTERNS: set[str] = set()
+
+
+def _compile_pattern(pattern_raw: str):
+    return (_regex_engine or re).compile(pattern_raw)
+
+
+async def safe_rule_match(rule: DeletionRule, text: str, timeout: float = _REGEX_TIMEOUT_SECONDS) -> bool:
+    """带超时与熔断的规则匹配。纯关键词规则走快路径;regex 库缺席时退回无防护匹配。"""
+    pattern = rule.pattern
+    if pattern is None:
+        return rule.matches(text)
+    if pattern.pattern in _DISABLED_PATTERNS:
+        return False
+    if _regex_engine is not None and isinstance(pattern, _regex_engine.Pattern):
+        try:
+            return bool(pattern.search(text, timeout=timeout))
+        except TimeoutError:
+            _DISABLED_PATTERNS.add(pattern.pattern)
+            logger.warning(
+                "关键词删除规则正则执行超时(>%.1fs),已熔断禁用 pattern=%r",
+                timeout,
+                pattern.pattern,
+            )
+            return False
+    return rule.matches(text)
+
 
 @dataclass(slots=True)
 class DeletionRule:
@@ -52,8 +92,8 @@ def _parse_rule(raw: object, index: int) -> Optional[DeletionRule]:
     keywords_raw = raw.get("keywords")
     if isinstance(pattern_raw, str) and pattern_raw.strip():
         try:
-            pattern = re.compile(pattern_raw)
-        except re.error as exc:
+            pattern = _compile_pattern(pattern_raw)
+        except _PATTERN_ERROR_TYPES as exc:
             logger.warning("关键词删除规则 #%s 正则无效 %r: %s,已忽略", index, pattern_raw, exc)
             return None
     elif isinstance(keywords_raw, (list, tuple)):
@@ -190,7 +230,7 @@ async def try_keyword_deletion(
         return False
 
     for idx, rule in enumerate(rules):
-        if not rule.matches(text):
+        if not await safe_rule_match(rule, text):
             continue
 
         # 冷却检查

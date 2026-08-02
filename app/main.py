@@ -14,10 +14,11 @@ from .bot_commands import sync_bot_commands
 from .bot_components.scoring import RedisDailyScoreManager
 from .bot_components.verification import run_cleanup_scheduler
 from .config import describe_effective_config, load_settings
+from .instance_lock import ensure_single_instance
 from .metrics import build_metrics
 from .runtime_settings import apply_overrides
 from .storage import VerificationStore
-from .updater import check_latest_release
+from .updater import check_latest_release, register_shutdown_hook
 from .web import create_web_app
 
 
@@ -58,6 +59,9 @@ async def main() -> None:
     # 启动时打印一份脱敏的 effective config,帮助排查"配了但不知道生效没"
     logger.info("启动配置快照：%s", describe_effective_config(settings))
 
+    # 单实例锁:守护漏判/重启接力竞态导致双实例时,后到者直接退出
+    ensure_single_instance(settings.database_path.parent / "bot.lock")
+
     if settings.message_ttl_seconds and settings.message_ttl_seconds > 0:
         logger.info("消息自动删除TTL=%s秒", settings.message_ttl_seconds)
     else:
@@ -79,6 +83,13 @@ async def main() -> None:
 
     bot = create_bot(settings, store)
     await sync_bot_commands(bot)
+
+    # 注册关闭钩子:os._exit/execv 重启或关停前限时执行,
+    # 弥补直接终止绕过下方 finally 收尾的问题(降低数据丢失窗口)
+    register_shutdown_hook(store.close)
+    register_shutdown_hook(bot.session.close)
+    register_shutdown_hook(redis_client.aclose)
+
     dispatcher = create_dispatcher(
         settings,
         store,

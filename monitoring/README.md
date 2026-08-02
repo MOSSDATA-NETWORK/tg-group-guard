@@ -59,7 +59,7 @@ scrape_configs:
 
 | 指标 | 类型 | 说明 |
 |---|---|---|
-| `telegram_group_guard_bot_messages_total{result}` | Counter | 处理消息数。`result`: `received` 收到 / `keyword_deleted` 关键词删除 / `ad_passed` 检测通过 / `ad_flagged` 判为广告 |
+| `telegram_group_guard_bot_messages_total{result}` | Counter | 处理消息数。`result`: `received` 收到 / `keyword_deleted` 关键词删除 / `keyword_replied` 关键词回复 / `ad_passed` 检测通过 / `ad_flagged` 判为广告 |
 | `telegram_group_guard_bot_verification_total{result}` | Counter | 验证结果。`result`: `verified` 通过 / `expired` 超时 |
 | `telegram_group_guard_bot_llm_latency_seconds{provider}` | Histogram | LLM 调用延迟分布 |
 | `telegram_group_guard_bot_llm_outcome_total{provider,flagged}` | Counter | LLM 判定结果(`flagged=true` 为判广告) |
