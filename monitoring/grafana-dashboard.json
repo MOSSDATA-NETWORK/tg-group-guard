@@ -48,7 +48,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(kkbot_verification_total{result=\"verified\"}[24h])) / clamp_min(sum(increase(kkbot_verification_total[24h])), 1)"
+          "expr": "sum(increase(telegram_group_guard_bot_verification_total{result=\"verified\"}[24h])) / clamp_min(sum(increase(telegram_group_guard_bot_verification_total[24h])), 1)"
         }
       ]
     },
@@ -76,7 +76,7 @@
         "textMode": "auto"
       },
       "targets": [
-        { "refId": "A", "expr": "sum(increase(kkbot_messages_total[24h]))" }
+        { "refId": "A", "expr": "sum(increase(telegram_group_guard_bot_messages_total[24h]))" }
       ]
     },
     {
@@ -103,7 +103,7 @@
         "textMode": "auto"
       },
       "targets": [
-        { "refId": "A", "expr": "sum(increase(kkbot_messages_total{result=\"ad_flagged\"}[24h]))" }
+        { "refId": "A", "expr": "sum(increase(telegram_group_guard_bot_messages_total{result=\"ad_flagged\"}[24h]))" }
       ]
     },
     {
@@ -137,7 +137,7 @@
         "textMode": "auto"
       },
       "targets": [
-        { "refId": "A", "expr": "kkbot_llm_in_flight" }
+        { "refId": "A", "expr": "telegram_group_guard_bot_llm_in_flight" }
       ]
     },
     {
@@ -167,7 +167,7 @@
         "textMode": "value"
       },
       "targets": [
-        { "refId": "A", "expr": "kkbot_score_redis_degraded" }
+        { "refId": "A", "expr": "telegram_group_guard_bot_score_redis_degraded" }
       ]
     },
     {
@@ -208,7 +208,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(result) (rate(kkbot_messages_total[5m]))",
+          "expr": "sum by(result) (rate(telegram_group_guard_bot_messages_total[5m]))",
           "legendFormat": "{{result}}"
         }
       ]
@@ -237,7 +237,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(result) (increase(kkbot_messages_total[24h]))",
+          "expr": "sum by(result) (increase(telegram_group_guard_bot_messages_total[24h]))",
           "legendFormat": "{{result}}"
         }
       ]
@@ -277,7 +277,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(result) (rate(kkbot_verification_total[15m]))",
+          "expr": "sum by(result) (rate(telegram_group_guard_bot_verification_total[15m]))",
           "legendFormat": "{{result}}"
         }
       ]
@@ -317,17 +317,17 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by(le, provider) (rate(kkbot_llm_latency_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by(le, provider) (rate(telegram_group_guard_bot_llm_latency_seconds_bucket[5m])))",
           "legendFormat": "p50 {{provider}}"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by(le, provider) (rate(kkbot_llm_latency_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by(le, provider) (rate(telegram_group_guard_bot_llm_latency_seconds_bucket[5m])))",
           "legendFormat": "p95 {{provider}}"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.99, sum by(le, provider) (rate(kkbot_llm_latency_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by(le, provider) (rate(telegram_group_guard_bot_llm_latency_seconds_bucket[5m])))",
           "legendFormat": "p99 {{provider}}"
         }
       ]
@@ -364,7 +364,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(provider, flagged) (rate(kkbot_llm_outcome_total[5m]))",
+          "expr": "sum by(provider, flagged) (rate(telegram_group_guard_bot_llm_outcome_total[5m]))",
           "legendFormat": "{{provider}} 广告={{flagged}}"
         }
       ]
@@ -398,13 +398,13 @@
         "showThresholdMarkers": true
       },
       "targets": [
-        { "refId": "A", "expr": "kkbot_llm_in_flight" }
+        { "refId": "A", "expr": "telegram_group_guard_bot_llm_in_flight" }
       ]
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["telegram", "kkbot", "tg-group-guard"],
+  "tags": ["telegram", "telegram-group-guard-bot", "tg-group-guard"],
   "templating": { "list": [] },
   "time": { "from": "now-24h", "to": "now" },
   "timepicker": {},

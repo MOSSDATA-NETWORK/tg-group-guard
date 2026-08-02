@@ -86,15 +86,15 @@ async def test_ad_review_expire_cleanup():
 
 
 def test_metrics_expose():
-    """Bug #1: PrometheusMetrics.expose() 能导出自定义 registry 中的 kkbot_* 指标。"""
+    """Bug #1: PrometheusMetrics.expose() 能导出自定义 registry 中的 telegram_group_guard_bot_* 指标。"""
     m = PrometheusMetrics()
     m.observe_llm_outcome(provider="ollama", flagged=True)
     payload = m.expose().decode("utf-8")
-    assert "kkbot_llm_outcome_total" in payload, payload[:500]
+    assert "telegram_group_guard_bot_llm_outcome_total" in payload, payload[:500]
     # web.py 的修复依赖 hasattr(metrics, "expose") 分支
     assert hasattr(m, "expose")
     assert not hasattr(NullMetrics(), "expose")  # NullMetrics 走全局 generate_latest 兜底
-    print("PASS: metrics.expose() 输出包含 kkbot_* 指标，web 层分支条件成立")
+    print("PASS: metrics.expose() 输出包含 telegram_group_guard_bot_* 指标，web 层分支条件成立")
 
 
 def test_keyword_rule_matching():

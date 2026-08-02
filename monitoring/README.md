@@ -32,7 +32,7 @@ scrape_configs:
 ```
 
 重载 Prometheus 后,在 *Status → Targets* 确认该 job 状态为 `UP`,
-并能在 Graph 页查到 `kkbot_messages_total`。
+并能在 Graph 页查到 `telegram_group_guard_bot_messages_total`。
 
 ## 三、仪表盘内容(13 个面板)
 
@@ -59,12 +59,12 @@ scrape_configs:
 
 | 指标 | 类型 | 说明 |
 |---|---|---|
-| `kkbot_messages_total{result}` | Counter | 处理消息数。`result`: `received` 收到 / `keyword_deleted` 关键词删除 / `ad_passed` 检测通过 / `ad_flagged` 判为广告 |
-| `kkbot_verification_total{result}` | Counter | 验证结果。`result`: `verified` 通过 / `expired` 超时 |
-| `kkbot_llm_latency_seconds{provider}` | Histogram | LLM 调用延迟分布 |
-| `kkbot_llm_outcome_total{provider,flagged}` | Counter | LLM 判定结果(`flagged=true` 为判广告) |
-| `kkbot_llm_in_flight` | Gauge | 正在执行的 LLM 请求数 |
-| `kkbot_score_redis_degraded` | Gauge | 评分 Redis 降级标志:`1` 已降级 / `0` 正常 |
+| `telegram_group_guard_bot_messages_total{result}` | Counter | 处理消息数。`result`: `received` 收到 / `keyword_deleted` 关键词删除 / `ad_passed` 检测通过 / `ad_flagged` 判为广告 |
+| `telegram_group_guard_bot_verification_total{result}` | Counter | 验证结果。`result`: `verified` 通过 / `expired` 超时 |
+| `telegram_group_guard_bot_llm_latency_seconds{provider}` | Histogram | LLM 调用延迟分布 |
+| `telegram_group_guard_bot_llm_outcome_total{provider,flagged}` | Counter | LLM 判定结果(`flagged=true` 为判广告) |
+| `telegram_group_guard_bot_llm_in_flight` | Gauge | 正在执行的 LLM 请求数 |
+| `telegram_group_guard_bot_score_redis_degraded` | Gauge | 评分 Redis 降级标志:`1` 已降级 / `0` 正常 |
 
 ## 五、建议告警规则(可选)
 
@@ -76,7 +76,7 @@ groups:
     rules:
       # 评分系统 Redis 降级超过 5 分钟
       - alert: ScoreRedisDegraded
-        expr: kkbot_score_redis_degraded == 1
+        expr: telegram_group_guard_bot_score_redis_degraded == 1
         for: 5m
         labels: { severity: warning }
         annotations:
@@ -84,7 +84,7 @@ groups:
 
       # 持续 10 分钟无任何消息流量(Bot 掉线或抓取中断)
       - alert: NoMessageTraffic
-        expr: increase(kkbot_messages_total[5m]) == 0
+        expr: increase(telegram_group_guard_bot_messages_total[5m]) == 0
         for: 10m
         labels: { severity: critical }
         annotations:
@@ -92,7 +92,7 @@ groups:
 
       # LLM p95 延迟超过 30 秒
       - alert: LLMLatencyHigh
-        expr: histogram_quantile(0.95, rate(kkbot_llm_latency_seconds_bucket[5m])) > 30
+        expr: histogram_quantile(0.95, rate(telegram_group_guard_bot_llm_latency_seconds_bucket[5m])) > 30
         for: 10m
         labels: { severity: warning }
         annotations:
