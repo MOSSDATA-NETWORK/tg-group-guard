@@ -11,6 +11,7 @@ from aiogram.exceptions import TelegramNetworkError
 
 from .bot import create_bot, create_dispatcher
 from .bot_commands import sync_bot_commands
+from .bot_components.messaging import configure_messaging_store, restore_scheduled_deletions
 from .bot_components.scoring import RedisDailyScoreManager
 from .bot_components.verification import run_cleanup_scheduler
 from .config import describe_effective_config, load_settings
@@ -89,6 +90,10 @@ async def main() -> None:
     register_shutdown_hook(store.close)
     register_shutdown_hook(bot.session.close)
     register_shutdown_hook(redis_client.aclose)
+
+    # TTL 消息删除任务:启用持久化并恢复上次进程遗留的任务
+    configure_messaging_store(store)
+    await restore_scheduled_deletions(bot)
 
     dispatcher = create_dispatcher(
         settings,

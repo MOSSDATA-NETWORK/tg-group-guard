@@ -267,6 +267,16 @@ class VerificationStore:
             ON ad_qualified_users(chat_id, qualified);
             """
         )
+        await self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_deletions (
+                chat_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                delete_at INTEGER NOT NULL,
+                PRIMARY KEY (chat_id, message_id)
+            );
+            """
+        )
         await self._db.commit()
 
         try:
@@ -386,6 +396,41 @@ class VerificationStore:
             )
             await self._db.commit()
             return bool(result.rowcount)
+
+    # ===== TTL 消息删除任务持久化（重启后恢复） =====
+
+    async def schedule_message_deletion(
+        self, chat_id: int, message_id: int, delete_at: datetime
+    ) -> None:
+        await self._ensure_connected()
+        async with self._lock:
+            await self._db.execute(
+                """
+                INSERT OR REPLACE INTO scheduled_deletions (chat_id, message_id, delete_at)
+                VALUES (?, ?, ?)
+                """,
+                (chat_id, message_id, int(delete_at.timestamp())),
+            )
+            await self._db.commit()
+
+    async def remove_scheduled_deletion(self, chat_id: int, message_id: int) -> None:
+        await self._ensure_connected()
+        async with self._lock:
+            await self._db.execute(
+                "DELETE FROM scheduled_deletions WHERE chat_id = ? AND message_id = ?",
+                (chat_id, message_id),
+            )
+            await self._db.commit()
+
+    async def fetch_scheduled_deletions(self) -> list[dict[str, int]]:
+        await self._ensure_connected()
+        async with self._lock:
+            cursor = await self._db.execute(
+                "SELECT chat_id, message_id, delete_at FROM scheduled_deletions"
+            )
+            rows = await cursor.fetchall()
+            await cursor.close()
+        return [dict(row) for row in rows]
 
     async def add_warning(
         self,
@@ -1100,7 +1145,9 @@ class VerificationStore:
             per_chat_rows = await cursor.fetchall()
             await cursor.close()
 
-            # 24h 小时分布（用最近 24h 而不是今日，热力更稳）
+            # 24h 小时分布（用最近 24h 而不是今日，热力更稳）；
+            # 只统计 joined 事件,否则每次进群伴随的 verified/expired 等
+            # 终态事件会让分布虚高至约 2 倍
             day_ago = now - timedelta(hours=24)
             cursor = await self._db.execute(
                 f"""
@@ -1108,6 +1155,7 @@ class VerificationStore:
                 FROM verification_events
                 WHERE chat_id IN ({placeholders})
                   AND created_at >= ?
+                  AND event = 'joined'
                 """,
                 chat_params + (int(day_ago.timestamp()),),
             )

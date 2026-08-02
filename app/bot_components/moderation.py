@@ -103,7 +103,11 @@ async def handle_low_score_violation(
                 )
 
     display_name = escape(message.from_user.full_name or str(user_id))
-    if kick_only:
+    if not ban_success:
+        # ban_chat_member 失败时用户其实仍在群里,公告必须如实,
+        # 否则管理员会误以为已处理完成(对齐广告封禁路径的做法)
+        action_suffix = "移除失败（机器人权限不足或目标为管理员），请管理员手动处理。"
+    elif kick_only:
         action_suffix = "已移出（未封禁，累计评分过低）。"
     else:
         action_suffix = "已移出并拉黑。"

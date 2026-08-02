@@ -22,6 +22,11 @@ async def is_authorized_admin(bot: Bot, settings: "Settings", message: Message) 
 
     chat = message.chat
     if chat.type in {"group", "supergroup"}:
+        # 授权模型与 verify.py 的入群处理一致:配置了白名单时,
+        # 非授权群一律拒绝(机器人被拉进未授权群时,该群管理员不能
+        # 用 admin 指令操作成员/写共享存储);未配置白名单为开放模式
+        if settings.allowed_chat_ids and chat.id not in settings.allowed_chat_ids:
+            return False
         try:
             member = await bot.get_chat_member(chat.id, user.id)
         except (TelegramBadRequest, TelegramForbiddenError):

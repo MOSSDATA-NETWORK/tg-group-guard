@@ -613,6 +613,143 @@ async def test_regex_timeout_circuit_breaker():
     print("PASS: regex 引擎免疫灾难模式 + 超时熔断 + 正常规则不受影响")
 
 
+async def test_admin_group_requires_whitelist():
+    """#1: 配置白名单时,非授权群管理员不能使用 admin 指令;未配置为开放模式。"""
+    from types import SimpleNamespace as _SN
+
+    from app.bot_components.permissions import is_authorized_admin
+
+    async def _get_member(chat_id, user_id):
+        return _SN(status="administrator")
+
+    bot = _SN(get_chat_member=_get_member)
+    settings = _SN(allowed_chat_ids={-100})
+    msg_unauth = _SN(from_user=_SN(id=1), chat=_SN(id=-200, type="supergroup"))
+    msg_auth = _SN(from_user=_SN(id=1), chat=_SN(id=-100, type="supergroup"))
+    assert await is_authorized_admin(bot, settings, msg_unauth) is False
+    assert await is_authorized_admin(bot, settings, msg_auth) is True
+    # 开放模式(白名单为空):与 verify.py 入群处理语义一致,任意群管理员可用
+    open_settings = _SN(allowed_chat_ids=set())
+    assert await is_authorized_admin(bot, open_settings, msg_unauth) is True
+    print("PASS: admin 指令群聊白名单校验(非授权拒绝/授权放行/空白名单开放)")
+
+
+async def test_hourly_distribution_joined_only():
+    """#2: 24h 进群分布只统计 joined 事件,不再被终态事件虚增。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        store = VerificationStore(Path(tmp) / "t.sqlite3")
+        await store.connect()
+        now = datetime.now(tz=timezone.utc)
+        await store.record_verification_event(
+            chat_id=-100, user_id=1, username="a", event="joined", created_at=now
+        )
+        await store.record_verification_event(
+            chat_id=-100, user_id=2, username="b", event="joined", created_at=now
+        )
+        await store.record_verification_event(
+            chat_id=-100, user_id=1, username="a", event="verified", created_at=now
+        )
+        await store.record_verification_event(
+            chat_id=-100, user_id=2, username="b", event="expired", created_at=now
+        )
+        data = await store.summarize_metrics({-100})
+        assert sum(data["hourly"]) == 2, data["hourly"]
+        await store.close()
+    print("PASS: 24h 进群分布只计 joined(4 条事件 → 分布合计 2)")
+
+
+async def test_low_score_ban_failure_notice():
+    """#3: 低分封禁失败时公告如实说明,不再谎称"已移出并拉黑"。"""
+    from types import SimpleNamespace as _SN
+
+    from aiogram.exceptions import TelegramBadRequest
+
+    from app.bot_components.moderation import handle_low_score_violation
+
+    sent: list[str] = []
+
+    class _Bot:
+        async def delete_message(self, *a, **k):
+            return True
+
+        async def ban_chat_member(self, *a, **k):
+            raise TelegramBadRequest(method=None, message="not enough rights")
+
+        async def send_message(self, chat_id, text, **kwargs):
+            sent.append(text)
+            return _SN(message_id=1, chat=_SN(id=chat_id))
+
+    class _ScoreMgr:
+        async def adjust_score(self, chat_id, user_id, delta):
+            return -1
+
+        async def reset_score(self, chat_id, user_id):
+            raise AssertionError("封禁失败不应重置评分")
+
+    message = _SN(
+        from_user=_SN(id=42, full_name="User", username="u"),
+        chat=_SN(id=-100),
+        message_id=7,
+    )
+    settings = _SN(
+        ad_guard_ban=True,
+        ad_guard_score_ban_threshold=-3,
+        message_ttl_seconds=None,
+    )
+    await handle_low_score_violation(
+        _Bot(), message, settings=settings, score_manager=_ScoreMgr(), current_score=0, store=None
+    )
+    assert len(sent) == 1, sent
+    assert "移除失败" in sent[0], sent[0]
+    assert "已移出并拉黑" not in sent[0], sent[0]
+    print("PASS: 低分封禁失败公告如实(不含虚假的『已移出并拉黑』)")
+
+
+async def test_ttl_deletion_persistence_and_restore():
+    """#4/#5: TTL 删除任务持久化存取 + 重启恢复(到期立即删 + 任务持强引用)。"""
+    from types import SimpleNamespace as _SN
+
+    from app.bot_components import messaging as msg
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = VerificationStore(Path(tmp) / "t.sqlite3")
+        await store.connect()
+        now = datetime.now(tz=timezone.utc)
+        # 存取往返
+        await store.schedule_message_deletion(-100, 1, now)
+        await store.schedule_message_deletion(-100, 2, now + timedelta(hours=1))
+        rows = await store.fetch_scheduled_deletions()
+        assert len(rows) == 2, rows
+        await store.remove_scheduled_deletion(-100, 1)
+        assert len(await store.fetch_scheduled_deletions()) == 1
+
+        deleted: list[tuple[int, int]] = []
+
+        class _Bot:
+            async def delete_message(self, chat_id, message_id, **k):
+                deleted.append((chat_id, message_id))
+                return True
+
+        msg.configure_messaging_store(store)
+        try:
+            # 遗留一条已到期的任务,恢复后应立即删除并销记录
+            await store.schedule_message_deletion(-100, 99, now - timedelta(seconds=5))
+            restored = await msg.restore_scheduled_deletions(_Bot())
+            assert restored == 2, restored  # 1 条一小时后 + 1 条已到期
+            await asyncio.sleep(0.3)
+            assert (-100, 99) in deleted, deleted
+            remaining = await store.fetch_scheduled_deletions()
+            assert len(remaining) == 1 and remaining[0]["message_id"] == 2, remaining
+            assert len(msg._TTL_TASKS) >= 1, "未到期任务应持有强引用"
+        finally:
+            for task in list(msg._TTL_TASKS):
+                task.cancel()
+            msg._TTL_TASKS.clear()
+            msg.configure_messaging_store(None)
+        await store.close()
+    print("PASS: TTL 删除持久化(存取/到期即删/记录清理/强引用)正确")
+
+
 async def main():
     await test_summarize_metrics_keyerror()
     await test_recent_events_default_30d()
@@ -634,6 +771,10 @@ async def main():
     test_single_instance_lock()
     test_remove_stale_code()
     await test_regex_timeout_circuit_breaker()
+    await test_admin_group_requires_whitelist()
+    await test_hourly_distribution_joined_only()
+    await test_low_score_ban_failure_notice()
+    await test_ttl_deletion_persistence_and_restore()
     print("\n全部回归验证通过")
 
 

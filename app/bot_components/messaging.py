@@ -16,6 +16,71 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# 注入的存储:启用 TTL 删除任务持久化(重启后可恢复);
+# 未注入时退化为纯内存调度(旧行为)
+_STORE: "VerificationStore | None" = None
+# fire-and-forget 任务强引用集合,防 GC 提前回收(CPython 官方警告)
+_TTL_TASKS: set[asyncio.Task] = set()
+
+
+def configure_messaging_store(store: "VerificationStore | None") -> None:
+    """注入存储,启用 TTL 删除任务持久化。启动时调用一次。"""
+    global _STORE
+    _STORE = store
+
+
+async def _delete_message_later_tracked(
+    bot: Bot, chat_id: int, message_id: int, delay: int
+) -> None:
+    """带持久化的延迟删除:先落库,删除成功后销记录;
+    进程退出被中断(CancelledError)时保留记录,重启后恢复。"""
+    if _STORE is not None:
+        try:
+            from datetime import datetime, timedelta, timezone
+
+            await _STORE.schedule_message_deletion(
+                chat_id,
+                message_id,
+                datetime.now(tz=timezone.utc) + timedelta(seconds=delay),
+            )
+        except Exception as exc:  # 持久化失败不阻断删除
+            logger.warning("持久化删除任务失败 chat_id=%s msg_id=%s error=%r", chat_id, message_id, exc)
+    try:
+        await delete_message_later(bot, chat_id, message_id, delay)
+    except asyncio.CancelledError:
+        raise  # 保留持久化记录,重启后恢复
+    if _STORE is not None:
+        try:
+            await _STORE.remove_scheduled_deletion(chat_id, message_id)
+        except Exception as exc:
+            logger.warning("移除删除任务记录失败 chat_id=%s msg_id=%s error=%r", chat_id, message_id, exc)
+
+
+def _spawn_delete_task(bot: Bot, chat_id: int, message_id: int, delay: int) -> None:
+    task = asyncio.create_task(_delete_message_later_tracked(bot, chat_id, message_id, delay))
+    _TTL_TASKS.add(task)
+    task.add_done_callback(_TTL_TASKS.discard)
+
+
+async def restore_scheduled_deletions(bot: Bot) -> int:
+    """重启后恢复持久化的 TTL 删除任务;到期的立即删除。返回恢复条数。"""
+    if _STORE is None:
+        return 0
+    try:
+        rows = await _STORE.fetch_scheduled_deletions()
+    except Exception as exc:
+        logger.warning("读取持久化删除任务失败: %r", exc)
+        return 0
+    import time as _time
+
+    now = int(_time.time())
+    for row in rows:
+        delay = max(0, int(row["delete_at"]) - now)
+        _spawn_delete_task(bot, row["chat_id"], row["message_id"], delay)
+    if rows:
+        logger.info("已恢复 %s 条持久化的消息删除任务", len(rows))
+    return len(rows)
+
 
 async def send_message_with_ttl(
     bot: Bot,
@@ -37,9 +102,7 @@ async def send_message_with_ttl(
                 message.message_id,
                 ttl,
             )
-            asyncio.create_task(
-                delete_message_later(bot, chat_id, message.message_id, ttl)
-            )
+            _spawn_delete_task(bot, chat_id, message.message_id, ttl)
         else:
             logger.debug(
                 "跳过自动删除 chat_id=%s message_id=%s ttl=%s",
@@ -57,9 +120,7 @@ async def send_message_with_ttl(
                 message.message_id,
                 ttl,
             )
-            asyncio.create_task(
-                delete_message_later(bot, chat_id, message.message_id, ttl)
-            )
+            _spawn_delete_task(bot, chat_id, message.message_id, ttl)
         else:
             logger.debug(
                 "验证提示不自动删除 chat_id=%s message_id=%s ttl=%s",
@@ -120,7 +181,7 @@ def schedule_message_auto_delete(bot: Bot, message: Message, ttl: Optional[int])
             message_id,
             ttl,
         )
-        asyncio.create_task(delete_message_later(bot, chat_id, message_id, ttl))
+        _spawn_delete_task(bot, chat_id, message_id, ttl)
 
 
 def truncate_for_logging(text: str, *, limit: int = MAX_LOG_PAYLOAD_LENGTH) -> str:
@@ -133,6 +194,8 @@ __all__ = [
     "send_message_with_ttl",
     "delete_message_later",
     "schedule_message_auto_delete",
+    "configure_messaging_store",
+    "restore_scheduled_deletions",
     "truncate_for_logging",
 ]
 
