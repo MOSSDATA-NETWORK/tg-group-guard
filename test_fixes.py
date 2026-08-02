@@ -293,7 +293,18 @@ def test_relauncher_wait_for_port_free():
         holder.close()
     # 占用释放后:恢复可 bind
     assert wait_for_port_free(busy_port, timeout=2.0, interval=0.1) is True
-    print("PASS: relauncher 端口探测(空闲即过/占用等待/释放后恢复)正确")
+
+    # 地址族映射与 uvicorn 绑定逻辑一致:dual/:: → v6+v4,IPv6 → 仅 v6,其他 → 仅 v4
+    import socket as _s
+
+    from app.relauncher import _probe_targets
+
+    assert _probe_targets("0.0.0.0") == [(_s.AF_INET, "0.0.0.0")]
+    dual = _probe_targets("dual")
+    assert (_s.AF_INET6, "::") in dual and (_s.AF_INET, "0.0.0.0") in dual and len(dual) == 2
+    assert _probe_targets("::") == dual or _probe_targets("::") == _probe_targets("dual")
+    assert _probe_targets("::1") == [(_s.AF_INET6, "::1")]
+    print("PASS: relauncher 端口探测(空闲即过/占用等待/释放后恢复/地址族映射)正确")
 
 
 def test_restart_process_windows_uses_relauncher():
@@ -321,13 +332,14 @@ def test_restart_process_windows_uses_relauncher():
         updater.os = fake_os
         updater._spawn_detached = spawned.append
         try:
-            updater._restart_process(port=8000)
+            updater._restart_process(port=8000, host="dual")
         except SystemExit:
             pass
         assert len(spawned) == 1 and exited == [0]
         cmd = spawned[0]
         assert any("relauncher.py" in part for part in cmd), cmd
         assert "--port" in cmd and "8000" in cmd, cmd
+        assert "--host" in cmd and "dual" in cmd, cmd
         assert "--" in cmd and cmd.index("--") < len(cmd) - 1, cmd
     finally:
         updater.os = real_os
@@ -489,30 +501,30 @@ def test_supervisor_detection_extended():
 
 
 def test_single_instance_lock():
-    """#6: 存活实例持锁时拒绝启动;陈旧锁(进程已退出)可接管。"""
-    import subprocess as _sp
-
-    from app.instance_lock import ensure_single_instance
+    """#6: 内核级文件锁互斥;持锁文件拒绝二次加锁;fd 关闭(模拟进程死亡)后可重新获取。"""
+    from app import instance_lock as il
 
     with tempfile.TemporaryDirectory() as tmp:
-        lock = Path(tmp) / "bot.lock"
-        # 另一个存活实例(常驻子进程)持锁 → SystemExit
-        alive = _sp.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        f1, f2 = Path(tmp) / "a.lock", Path(tmp) / "b.lock"
+        il.ensure_single_instance(f1)  # 首次加锁成功
+        fd1 = il._LOCK_FD
+        assert fd1 is not None
+        # 同一文件再次加锁(模拟第二实例) → SystemExit(3)
         try:
-            lock.write_text(str(alive.pid), encoding="utf-8")
-            try:
-                ensure_single_instance(lock)
-                raise AssertionError("存活实例持锁时应退出")
-            except SystemExit as exc:
-                assert exc.code == 3
-        finally:
-            alive.kill()
-            alive.wait()
-        # 陈旧锁:用刚被杀掉的子进程 pid(已死亡)
-        lock.write_text(str(alive.pid), encoding="utf-8")
-        ensure_single_instance(lock)  # 不抛异常,接管锁
-        assert lock.read_text(encoding="utf-8") == str(os.getpid())
-    print("PASS: 单实例锁(存活拒绝/陈旧接管)正确")
+            il.ensure_single_instance(f1)
+            raise AssertionError("持锁文件再次加锁应退出")
+        except SystemExit as exc:
+            assert exc.code == 3
+        # 不同文件不受影响
+        il.ensure_single_instance(f2)
+        os.close(il._LOCK_FD)
+        # 模拟进程死亡:关闭持锁 fd,内核放锁 → 可重新获取(无陈旧锁/PID 复用问题)
+        os.close(fd1)
+        il._LOCK_FD = None
+        il.ensure_single_instance(f1)
+        os.close(il._LOCK_FD)
+        il._LOCK_FD = None
+    print("PASS: 单实例内核文件锁(互斥/死亡即释放/无 PID 复用误判)正确")
 
 
 def test_remove_stale_code():
@@ -533,18 +545,23 @@ def test_remove_stale_code():
             zf.writestr("app/x.py", "old-x")      # 新旧都有 → 保留
             zf.writestr("app/legacy.py", "old")   # 旧有新无 → 应删除
             zf.writestr("app/readme.txt", "txt")  # 非 .py → 不处理
+            zf.writestr("../evil.py", "evil")     # 越界路径 → 跳过且不得删除
 
         dest = root / "dest"
         (dest / "app" / "__pycache__").mkdir(parents=True)
         (dest / "app" / "x.py").write_text("x=1", encoding="utf-8")
         (dest / "app" / "legacy.py").write_text("old", encoding="utf-8")
         (dest / "app" / "__pycache__" / "legacy.cpython-312.pyc").write_bytes(b"pyc")
+        outside = root / "evil.py"  # dest_root 之外的同名文件,绝不能被动到
+        outside.write_text("keep-me", encoding="utf-8")
 
         log: list[str] = []
         removed = _remove_stale_code(snapshot, src, log, dest_root=dest)
         assert removed == 1, (removed, log)
         assert not (dest / "app" / "legacy.py").exists()
         assert not (dest / "app" / "__pycache__" / "legacy.cpython-312.pyc").exists()
+        assert outside.read_text(encoding="utf-8") == "keep-me"
+        assert any("越界" in line for line in log), log
         assert (dest / "app" / "x.py").exists()
         assert any("清理 1 个" in line for line in log), log
     print("PASS: 废弃代码文件清理(.py + __pycache__,其他不动)正确")

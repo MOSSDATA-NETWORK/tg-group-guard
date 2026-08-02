@@ -743,7 +743,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                     settings,
                     f"✅ 已更新到 {info.get('latest')}，服务即将自动重启",
                 )
-                schedule_restart(2.0, port=settings.web_port)
+                schedule_restart(2.0, port=settings.web_port, host=settings.web_host)
             else:
                 await notify_admins(
                     app.state.bot,
@@ -787,7 +787,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                     "↩️ 已回滚到更新前状态，服务即将自动重启\n"
                     f"操作人：{session.get('name')} ({session.get('user_id')})",
                 )
-                schedule_restart(2.0, port=settings.web_port)
+                schedule_restart(2.0, port=settings.web_port, host=settings.web_host)
             else:
                 await notify_admins(
                     app.state.bot,
@@ -809,7 +809,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
             settings,
             f"🔁 服务被管理员手动重启\n操作人：{session.get('name')} ({session.get('user_id')})",
         )
-        schedule_restart(1.5, port=settings.web_port)
+        schedule_restart(1.5, port=settings.web_port, host=settings.web_host)
         return JSONResponse({"status": "restarting"})
 
     @app.post("/admin/api/shutdown")

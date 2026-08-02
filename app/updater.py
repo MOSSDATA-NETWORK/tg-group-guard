@@ -295,6 +295,7 @@ def _remove_stale_code(
     backup_code_snapshot 打的旧代码快照(文件清单在 zip namelist 里)。
     """
     dest_root = dest_root or PROJECT_ROOT
+    resolved_root = str(dest_root.resolve()) + os.sep
     new_files = {
         file.relative_to(src_root).as_posix()
         for file in src_root.rglob("*")
@@ -313,7 +314,12 @@ def _remove_stale_code(
             continue
         if any(part in _PRESERVE_NAMES for part in rel.parts):
             continue
-        target = dest_root / rel
+        # 与 tar 解压/回滚同款防护:删除前校验目标严格位于 dest_root 之内
+        # (快照是自生成可信文件,此处为纵深防御)
+        target = (dest_root / rel).resolve()
+        if not str(target).startswith(resolved_root):
+            log.append(f"⚠️ 快照包含越界路径 {name}，已跳过")
+            continue
         try:
             target.unlink(missing_ok=True)
             removed += 1
@@ -581,22 +587,23 @@ def _spawn_detached(cmd: list[str]) -> None:
     subprocess.Popen(cmd, **kwargs)
 
 
-def _windows_relaunch_command(port: int = 0) -> list[str]:
+def _windows_relaunch_command(port: int = 0, host: str = "0.0.0.0") -> list[str]:
     """构造 Windows 裸跑重启命令:接力器先等端口释放,再拉起新实例。
 
     直接 _spawn_detached([python] + argv) 会有端口竞争:子进程毫秒级内
     尝试 bind,而父进程的监听 socket(及浏览器会话留下的 TIME_WAIT 连接)
     尚未被内核回收,子进程撞上 Address already in use 后无重试直接死掉,
-    服务永久掉线。接力器(app/relauncher.py)等端口真正可 bind 后再启动。
+    服务永久掉线。接力器(app/relauncher.py)按 WEB_HOST 实际地址族
+    等端口真正可 bind 后再启动。
     """
     relauncher = Path(__file__).resolve().parent / "relauncher.py"
     cmd = [sys.executable, str(relauncher)]
     if port > 0:
-        cmd += ["--port", str(port)]
+        cmd += ["--port", str(port), "--host", host or "0.0.0.0"]
     return cmd + ["--", sys.executable] + sys.argv
 
 
-def _restart_process(port: int = 0) -> None:
+def _restart_process(port: int = 0, host: str = "0.0.0.0") -> None:
     cmd = [sys.executable] + sys.argv
     logger.info("正在重启进程：%s", cmd)
     if os.name != "nt":
@@ -607,21 +614,21 @@ def _restart_process(port: int = 0) -> None:
         os._exit(0)
     # Windows 裸跑：os.execv 无法干净移交事件循环与 socket 句柄;
     # 经接力器等端口释放后再拉起新实例,本进程随即退出
-    _spawn_detached(_windows_relaunch_command(port))
+    _spawn_detached(_windows_relaunch_command(port, host))
     os._exit(0)
 
 
-def schedule_restart(delay_seconds: float = 2.0, port: int = 0) -> None:
+def schedule_restart(delay_seconds: float = 2.0, port: int = 0, host: str = "0.0.0.0") -> None:
     """延迟后重启进程。延迟是为了让 HTTP 响应先送回浏览器。
 
-    port 是 Web 监听端口(WEB_PORT),用于 Windows 裸跑场景由接力器
-    等待端口释放;传 0 表示不检测(固定延迟后直接启动)。
+    port/host 是 Web 监听地址(WEB_PORT/WEB_HOST),用于 Windows 裸跑场景
+    由接力器按实际地址族等待端口释放;port 传 0 表示不检测。
     """
 
     async def _restart() -> None:
         await asyncio.sleep(delay_seconds)
         await _run_shutdown_hooks()
-        _restart_process(port)
+        _restart_process(port, host)
 
     try:
         loop = asyncio.get_running_loop()
@@ -634,6 +641,6 @@ def schedule_restart(delay_seconds: float = 2.0, port: int = 0) -> None:
                 asyncio.run(_run_shutdown_hooks())
             except Exception:
                 pass
-            _restart_process(port)
+            _restart_process(port, host)
 
         threading.Timer(delay_seconds, _threaded).start()
