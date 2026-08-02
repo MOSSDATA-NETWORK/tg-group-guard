@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
-from typing import Deque, Dict, Sequence, TYPE_CHECKING
+from typing import Deque, Sequence, TYPE_CHECKING
 
 from .constants import MESSAGE_HISTORY_LIMIT, MAX_HISTORY_TEXT_LENGTH
 
 if TYPE_CHECKING:
     from aiogram.types import Message
+
+# 跟踪的群数量上限,防止开放授权模式下字典无界增长(慢内存泄漏)。
+# 超出时按 LRU 淘汰最久未访问的群;被淘汰群的旧 deque 引用仍可用,只是不再共享。
+MAX_HISTORY_CHATS = 10000
 
 
 @dataclass(slots=True)
@@ -18,14 +22,18 @@ class HistoryEntry:
     is_forward: bool
 
 
-_message_histories: Dict[int, Deque[HistoryEntry]] = {}
+_message_histories: "OrderedDict[int, Deque[HistoryEntry]]" = OrderedDict()
 
 
 def get_message_history(chat_id: int) -> Deque[HistoryEntry]:
     history = _message_histories.get(chat_id)
-    if history is None:
-        history = deque(maxlen=MESSAGE_HISTORY_LIMIT)
-        _message_histories[chat_id] = history
+    if history is not None:
+        _message_histories.move_to_end(chat_id)
+        return history
+    history = deque(maxlen=MESSAGE_HISTORY_LIMIT)
+    _message_histories[chat_id] = history
+    while len(_message_histories) > MAX_HISTORY_CHATS:
+        _message_histories.popitem(last=False)
     return history
 
 

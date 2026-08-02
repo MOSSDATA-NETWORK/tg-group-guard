@@ -37,6 +37,9 @@ class Settings:
     message_ttl_seconds: Optional[int]
     ai_enabled: bool
     ad_guard_enabled: bool
+    # 管理员意图（是否希望开启广告守卫）。ad_guard_enabled 是"有效值"，
+    # 由意图 + ai_enabled + 端点/密钥是否齐备共同决定；两者可能不一致。
+    ad_guard_enabled_intent: bool
     ad_guard_rules_file: Optional[Path]
     ad_guard_provider: str
     ad_guard_threshold: float
@@ -99,6 +102,7 @@ def describe_effective_config(settings: "Settings") -> dict:
         "ai_enabled": settings.ai_enabled,
         "ad_guard": {
             "enabled": settings.ad_guard_enabled,
+            "enabled_intent": settings.ad_guard_enabled_intent,
             "provider": settings.ad_guard_provider,
             "threshold": settings.ad_guard_threshold,
             "min_length": settings.ad_guard_min_length,
@@ -320,6 +324,7 @@ def load_settings() -> Settings:
         message_ttl_seconds=message_ttl_seconds,
         ai_enabled=ai_enabled,
         ad_guard_enabled=effective_ad_guard_enabled,
+        ad_guard_enabled_intent=ad_guard_enabled_raw,
         ad_guard_rules_file=ad_guard_rules_file,
         ad_guard_provider=ad_guard_provider,
         ad_guard_threshold=ad_guard_threshold,

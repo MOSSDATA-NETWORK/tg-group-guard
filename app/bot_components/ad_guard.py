@@ -8,7 +8,11 @@ from typing import Any, Dict, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import aiohttp
 
-from ..ad_guard_rules import get_heuristic_pattern, render_prompt_message
+from ..ad_guard_rules import (
+    get_heuristic_pattern,
+    heuristic_pattern_search,
+    render_prompt_message,
+)
 from ..chat_settings import resolve_chat
 
 from .constants import MESSAGE_HISTORY_LIMIT
@@ -52,11 +56,10 @@ def _heuristic_match_text(text: str) -> bool:
     normalized = text.strip()
     if not normalized:
         return False
-    lowered = normalized.lower()
     pattern = get_heuristic_pattern()
     if pattern is None:
         return False
-    return bool(pattern.search(normalized))
+    return heuristic_pattern_search(pattern, normalized)
 
 
 async def check_advertisement(

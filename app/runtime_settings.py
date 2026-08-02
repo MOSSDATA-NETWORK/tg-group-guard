@@ -260,35 +260,60 @@ def _parse_value(spec: FieldSpec, raw: str) -> Any:
     return raw
 
 
+def recompute_ad_guard_enabled(settings: Settings) -> None:
+    """由管理员的开启意图 + AI 总开关 + 端点/密钥是否齐备，重算广告守卫有效值。
+
+    任何相关字段（AD_GUARD_ENABLED / AI_ENABLED / AD_GUARD_PROVIDER /
+    OLLAMA_ENDPOINT / OPENAI_API_KEY）变更后都必须调用，
+    否则会出现"UI 显示开启但实际不检测"或"补齐端点后仍不生效"。
+    """
+    effective = False
+    if settings.ad_guard_enabled_intent and settings.ai_enabled:
+        if settings.ad_guard_provider == "ollama":
+            effective = bool(settings.ollama_endpoint)
+        else:
+            effective = bool(settings.openai_api_key)
+    settings.ad_guard_enabled = effective
+
+
 def _apply_field(settings: Settings, spec: FieldSpec, raw: str) -> None:
     value = _parse_value(spec, raw)
     if spec.key == "AD_GUARD_ENABLED":
-        # Settings.ad_guard_enabled 是"有效值"，需结合 ai_enabled 与端点配置重新计算
-        intent = bool(value)
-        effective = False
-        if intent and settings.ai_enabled:
-            if settings.ad_guard_provider == "ollama":
-                effective = bool(settings.ollama_endpoint)
-            else:
-                effective = bool(settings.openai_api_key)
-        settings.ad_guard_enabled = effective
+        settings.ad_guard_enabled_intent = bool(value)
+        recompute_ad_guard_enabled(settings)
         return
     if spec.key == "AI_ENABLED":
         settings.ai_enabled = bool(value)
-        # AI 总开关变化后，广告守卫有效值也要重算
-        if not settings.ai_enabled:
-            settings.ad_guard_enabled = False
+        # AI 总开关变化后（无论开还是关），广告守卫有效值都要重算
+        recompute_ad_guard_enabled(settings)
         return
     if spec.key == "AD_GUARD_PROVIDER":
         setattr(settings, spec.attr, value)
-        if settings.ad_guard_enabled:
-            if value == "ollama":
-                settings.ad_guard_enabled = bool(settings.ollama_endpoint)
-            else:
-                settings.ad_guard_enabled = bool(settings.openai_api_key)
+        recompute_ad_guard_enabled(settings)
         return
     if spec.key in {"OLLAMA_ENDPOINT", "OPENAI_API_KEY"}:
         setattr(settings, spec.attr, value or None)
+        # 端点/密钥变化会影响广告守卫有效值（补齐应开启，清空应关闭）
+        recompute_ad_guard_enabled(settings)
+        return
+    if spec.key == "AD_GUARD_RULES_FILE":
+        setattr(settings, spec.attr, value)
+        # 规则文件路径变更需同步切换规则缓存，否则 UI 显示新路径但实际仍用旧规则
+        from .ad_guard_rules import configure_ad_guard_rules
+
+        configure_ad_guard_rules(value)
+        return
+    if spec.key == "KEYWORD_REPLY_RULES_FILE":
+        setattr(settings, spec.attr, value)
+        from .keyword_replies import configure_keyword_replies
+
+        configure_keyword_replies(value)
+        return
+    if spec.key == "KEYWORD_DELETION_RULES_FILE":
+        setattr(settings, spec.attr, value)
+        from .keyword_deletions import configure_keyword_deletions
+
+        configure_keyword_deletions(value)
         return
     setattr(settings, spec.attr, value)
 
@@ -309,6 +334,14 @@ def apply_overrides(settings: Settings, overrides: Optional[dict[str, str]] = No
     return skipped
 
 
+def _display_value(settings: Settings, spec: FieldSpec) -> Any:
+    """字段对外的"当前值"。AD_GUARD_ENABLED 显示管理员意图而非有效值，
+    避免端点缺失时 UI 开关自动回弹成关闭、覆盖文件里的 true 被误判为已变更。"""
+    if spec.key == "AD_GUARD_ENABLED":
+        return settings.ad_guard_enabled_intent
+    return getattr(settings, spec.attr)
+
+
 def describe_for_api(settings: Settings) -> dict[str, Any]:
     """输出给设置页的当前值快照；secret 字段脱敏，只回 is_set。"""
     groups: list[dict[str, Any]] = []
@@ -317,7 +350,7 @@ def describe_for_api(settings: Settings) -> dict[str, Any]:
         for spec in FIELDS:
             if spec.group != group:
                 continue
-            value = getattr(settings, spec.attr)
+            value = _display_value(settings, spec)
             item: dict[str, Any] = {
                 "key": spec.key,
                 "kind": spec.kind,
@@ -366,7 +399,7 @@ def validate_and_split(
             errors.append(str(exc))
             continue
         # 与当前值相同则跳过，避免无谓的覆盖与重启提示
-        current_raw = _to_raw(spec, getattr(settings, spec.attr))
+        current_raw = _to_raw(spec, _display_value(settings, spec))
         if spec.kind != "secret" and raw.strip() == current_raw.strip():
             continue
         # 归一化后再存，保证覆盖文件里的值就是解析后的语义

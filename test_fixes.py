@@ -750,6 +750,189 @@ async def test_ttl_deletion_persistence_and_restore():
     print("PASS: TTL 删除持久化(存取/到期即删/记录清理/强引用)正确")
 
 
+def test_ad_guard_enabled_recompute():
+    """#2: ad_guard_enabled 有效值随意图 + AI 开关 + 端点/密钥统一重算。"""
+    from types import SimpleNamespace as _SN
+
+    from app.runtime_settings import _FIELD_BY_KEY, _apply_field
+
+    settings = _SN(
+        ai_enabled=True,
+        ad_guard_enabled=True,
+        ad_guard_enabled_intent=True,
+        ad_guard_provider="ollama",
+        ollama_endpoint="http://127.0.0.1:11434",
+        openai_api_key=None,
+    )
+
+    def apply(key, raw):
+        _apply_field(settings, _FIELD_BY_KEY[key], raw)
+
+    # AI 关→开:有效值应随意图恢复(修复前永远卡在 False)
+    apply("AI_ENABLED", "false")
+    assert settings.ad_guard_enabled is False
+    apply("AI_ENABLED", "true")
+    assert settings.ad_guard_enabled is True, "AI 重新开启后广告守卫未恢复"
+
+    # 清空端点应立即关闭;补回应恢复(修复前不重算)
+    apply("OLLAMA_ENDPOINT", "")
+    assert settings.ad_guard_enabled is False, "清空端点后仍显示开启"
+    apply("OLLAMA_ENDPOINT", "http://127.0.0.1:11434")
+    assert settings.ad_guard_enabled is True, "补回端点后未恢复"
+
+    # 切 provider 到 openai 且无 key 应关闭;配上 key 应开启
+    apply("AD_GUARD_PROVIDER", "openai")
+    assert settings.ad_guard_enabled is False
+    apply("OPENAI_API_KEY", "sk-test")
+    assert settings.ad_guard_enabled is True
+
+    # 意图关闭时即使端点齐备也关闭;意图恢复后重算
+    apply("AD_GUARD_ENABLED", "false")
+    assert settings.ad_guard_enabled is False
+    assert settings.ad_guard_enabled_intent is False
+    apply("AD_GUARD_ENABLED", "true")
+    assert settings.ad_guard_enabled is True
+    print("PASS: ad_guard_enabled 意图/有效值统一重算(AI 开关/端点/密钥/provider 全路径)")
+
+
+def test_rules_file_path_hot_switch():
+    """#3: 修改规则文件路径后,规则缓存立即切换到新文件。"""
+    from types import SimpleNamespace as _SN
+
+    from app.ad_guard_rules import configure_ad_guard_rules, get_heuristic_pattern
+    from app.runtime_settings import apply_hot_values
+
+    with tempfile.TemporaryDirectory() as tmp:
+        f1 = Path(tmp) / "rules_a.json"
+        f2 = Path(tmp) / "rules_b.json"
+        f1.write_text(json.dumps({"pattern": "aaa_unique_one"}), encoding="utf-8")
+        f2.write_text(json.dumps({"pattern": "bbb_unique_two"}), encoding="utf-8")
+
+        settings = _SN(ad_guard_rules_file=None)
+        try:
+            apply_hot_values(settings, {"AD_GUARD_RULES_FILE": str(f1)})
+            p1 = get_heuristic_pattern()
+            assert p1 is not None and "aaa_unique_one" in p1.pattern
+
+            apply_hot_values(settings, {"AD_GUARD_RULES_FILE": str(f2)})
+            p2 = get_heuristic_pattern()
+            assert p2 is not None and "bbb_unique_two" in p2.pattern, "改路径后规则缓存未切换"
+        finally:
+            configure_ad_guard_rules(None)
+    print("PASS: 规则文件路径修改后热生效(缓存即时切换)")
+
+
+def test_heuristic_rules_signature_reload():
+    """#6+#7: 同秒二次保存可检测 / 坏文件不阻断修复后加载 / 启发式正则有超时防护。"""
+    import time
+
+    from app.ad_guard_rules import (
+        configure_ad_guard_rules,
+        get_heuristic_pattern,
+        heuristic_pattern_search,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Path(tmp) / "rules.json"
+        f.write_text(json.dumps({"pattern": "sig_v1_token"}), encoding="utf-8")
+        try:
+            configure_ad_guard_rules(f)
+            assert get_heuristic_pattern().pattern == "sig_v1_token"
+
+            # 同一秒内二次保存(长度不同)也必须被检测为变更(修复前 mtime<= 直接跳过)
+            f.write_text(json.dumps({"pattern": "sig_v2_token_longer"}), encoding="utf-8")
+            assert get_heuristic_pattern().pattern == "sig_v2_token_longer", "同秒二次保存未触发重载"
+
+            # 坏 JSON 不推进加载签名,沿用旧规则;修复后(签名变化)立即恢复加载
+            f.write_text("{broken json", encoding="utf-8")
+            p = get_heuristic_pattern()
+            assert p is not None and p.pattern == "sig_v2_token_longer", "坏文件应沿用旧规则"
+            f.write_text(json.dumps({"pattern": "sig_v3_fixed"}), encoding="utf-8")
+            assert get_heuristic_pattern().pattern == "sig_v3_fixed", "修复后未重新加载"
+
+            # 灾难性 pattern 搜索必须快速返回,不卡事件循环
+            f.write_text(json.dumps({"pattern": r"(a+)+$"}), encoding="utf-8")
+            pattern = get_heuristic_pattern()
+            start = time.monotonic()
+            result = heuristic_pattern_search(pattern, "a" * 5000 + "b")
+            elapsed = time.monotonic() - start
+            assert result is False and elapsed < 2.0, f"灾难性 pattern 未在时限内返回: {elapsed:.2f}s"
+        finally:
+            configure_ad_guard_rules(None)
+    print("PASS: 规则热重载签名检测(同秒变更/坏文件恢复) + 启发式正则超时防护")
+
+
+def test_message_history_lru_cap():
+    """#5: 消息历史字典有界,超限按 LRU 淘汰,访问提升为最近使用。"""
+    from app.bot_components import history as history_mod
+
+    original = history_mod._message_histories
+    history_mod._message_histories = history_mod.OrderedDict()
+    try:
+        cap = history_mod.MAX_HISTORY_CHATS
+        for chat_id in range(cap + 10):
+            history_mod.get_message_history(chat_id)
+        assert len(history_mod._message_histories) == cap, "超出上限未淘汰"
+        assert 0 not in history_mod._message_histories, "最早的条目未被 LRU 淘汰"
+        assert (cap + 9) in history_mod._message_histories
+        # 访问后提升为最近使用,再插入新条目时先淘汰其他旧条目
+        history_mod.get_message_history(20)
+        history_mod.get_message_history(cap + 100)
+        assert 20 in history_mod._message_histories, "LRU 访问提升失败"
+        assert len(history_mod._message_histories) == cap
+    finally:
+        history_mod._message_histories = original
+    print("PASS: 消息历史字典 LRU 上限(超限淘汰/访问提升/有界)")
+
+
+async def test_cleanup_serialized_with_admin_via_token_lock():
+    """#1: 清理器与管理员操作经 token 锁串行;管理员先放行(删记录)后清理器不得再封。"""
+    from app.bot_components.verification import cleanup_expired_records
+    from app.storage import VerificationRecord
+
+    store = VerificationStore(Path(tempfile.mkdtemp()) / "t.db")
+    now = datetime.now(tz=timezone.utc)
+    token = "tok_race"
+    await store.create(
+        VerificationRecord(
+            token=token,
+            chat_id=-100,
+            user_id=42,
+            username="u",
+            status="pending",
+            created_at=now - timedelta(hours=2),
+            expire_at=now - timedelta(hours=1),
+            verified_at=None,
+            prompt_message_id=None,
+        )
+    )
+
+    class _Bot:
+        ban_calls = 0
+
+        async def ban_chat_member(self, **kwargs):
+            type(self).ban_calls += 1
+
+        async def unban_chat_member(self, **kwargs):
+            pass
+
+    # 外部持有 token 锁,模拟管理员回调正在处理
+    held = await store.acquire_token_lock(token)
+    await held.acquire()
+    task = asyncio.create_task(cleanup_expired_records(_Bot(), store))
+    await asyncio.sleep(0.2)
+    assert not task.done(), "清理器未等待 token 锁"
+    # 管理员放行:删除记录
+    await store.delete(token)
+    held.release()
+    await store.release_token_lock(token)
+    await asyncio.wait_for(task, timeout=5)
+    assert _Bot.ban_calls == 0, "管理员放行后清理器仍执行了封禁"
+    assert await store.get(token) is None
+    await store.close()
+    print("PASS: 清理器与管理员操作 token 锁串行(放行后不再封禁)")
+
+
 async def main():
     await test_summarize_metrics_keyerror()
     await test_recent_events_default_30d()
@@ -775,6 +958,11 @@ async def main():
     await test_hourly_distribution_joined_only()
     await test_low_score_ban_failure_notice()
     await test_ttl_deletion_persistence_and_restore()
+    test_ad_guard_enabled_recompute()
+    test_rules_file_path_hot_switch()
+    test_heuristic_rules_signature_reload()
+    test_message_history_lru_cap()
+    await test_cleanup_serialized_with_admin_via_token_lock()
     print("\n全部回归验证通过")
 
 

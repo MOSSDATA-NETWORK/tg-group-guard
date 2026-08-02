@@ -78,8 +78,11 @@ def build_basic_router(services: BotServices) -> Router:
                 payload = parts[1].strip()
 
         if payload and payload.startswith("verify_"):
-            token = payload.removeprefix("verify_")
-            await handle_private_verification_start(message, token)
+            # verify_ 深链只应在私聊触发;群内的 verify_ 载荷无合法用途,
+            # 静默忽略(上面已调度消息自动删除),避免非管理员在群里触发机器人响应
+            if message.chat.type == "private":
+                token = payload.removeprefix("verify_")
+                await handle_private_verification_start(message, token)
             return
 
         if message.chat.type == "private":

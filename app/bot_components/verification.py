@@ -85,30 +85,38 @@ async def cleanup_expired_records(bot: Bot, store: VerificationStore, metrics=No
         return
     logger.info("检测到 %d 条过期验证，执行封禁", len(expired_records))
     for record in expired_records:
-        now = datetime.now(tz=UTC)
-        updated = await store.mark_failed(record.token, now)
-        if not updated:
-            continue
-        if metrics is not None:
-            metrics.record_verification(result="expired")
+        # token 级串行化:与 web /verify 端点、管理员回调共用同一把锁,
+        # 防止清理器与管理员操作并发出现"管理员放行、清理器却封禁"的冲突
+        token_lock = await store.acquire_token_lock(record.token)
         try:
-            await store.record_verification_event(
-                chat_id=record.chat_id,
-                user_id=record.user_id,
-                username=record.username,
-                event="expired",
-                created_at=now,
-            )
-        except Exception as exc:
-            logger.warning(
-                "记录过期事件失败 chat_id=%s user_id=%s error=%r",
-                record.chat_id,
-                record.user_id,
-                exc,
-                exc_info=True,
-            )
-        await delete_prompt_message(bot, record)
-        await ban_and_cleanup(bot, store, record, reason="expired")
+            async with token_lock:
+                now = datetime.now(tz=UTC)
+                updated = await store.mark_failed(record.token, now)
+                if not updated:
+                    continue
+                if metrics is not None:
+                    metrics.record_verification(result="expired")
+                try:
+                    await store.record_verification_event(
+                        chat_id=record.chat_id,
+                        user_id=record.user_id,
+                        username=record.username,
+                        event="expired",
+                        created_at=now,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "记录过期事件失败 chat_id=%s user_id=%s error=%r",
+                        record.chat_id,
+                        record.user_id,
+                        exc,
+                        exc_info=True,
+                    )
+                await delete_prompt_message(bot, record)
+                await ban_and_cleanup(bot, store, record, reason="expired")
+        finally:
+            # 异常路径也要释放,避免 _token_locks 常驻残留
+            await store.release_token_lock(record.token)
 
 
 async def run_cleanup_scheduler(

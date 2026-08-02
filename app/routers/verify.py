@@ -147,129 +147,154 @@ def build_verify_router(services: BotServices) -> Router:
             await callback.answer("仅管理员可操作", show_alert=True)
             return
 
-        if action == "skip":
-            from ..bot_components.verification import (
-                delete_prompt_message,
-                lift_restrictions,
-            )
-
-            await lift_restrictions(bot, record)
-            await delete_prompt_message(bot, record)
-            try:
-                await store.record_verification_event(
-                    chat_id=record.chat_id,
-                    user_id=record.user_id,
-                    username=record.username,
-                    event="admin_skip",
-                )
-            except Exception as exc:
-                logger.warning(
-                    "记录管理员跳过事件失败 chat_id=%s user_id=%s error=%r",
-                    record.chat_id,
-                    record.user_id,
-                    exc,
-                    exc_info=True,
-                )
-            await store.delete(token)
-            await callback.answer("已跳过验证并解除限制")
-        elif action == "tempban":
-            from ..bot_components.verification import delete_prompt_message
-
-            until_date = datetime.now(tz=timezone.utc) + timedelta(hours=1)
-            await delete_prompt_message(bot, record)
-            try:
-                await bot.ban_chat_member(
-                    record.chat_id,
-                    record.user_id,
-                    until_date=until_date,
-                    revoke_messages=True,
-                )
-            except TelegramBadRequest as exc:
-                logger.warning(
-                    "临时封禁失败 chat_id=%s user_id=%s operator=%s error=%s",
-                    record.chat_id,
-                    record.user_id,
-                    callback.from_user.id,
-                    exc,
-                    exc_info=exc,
-                )
-                await callback.answer("临时封禁失败，请查看日志", show_alert=True)
-                return
-            try:
-                await store.record_verification_event(
-                    chat_id=record.chat_id,
-                    user_id=record.user_id,
-                    username=record.username,
-                    event="admin_tempban",
-                )
-                await store.record_ban_event(
-                    chat_id=record.chat_id,
-                    user_id=record.user_id,
-                    display_name=record.username or str(record.user_id),
-                    operator_id=callback.from_user.id,
-                    operator_name=callback.from_user.full_name
-                    or callback.from_user.username
-                    or str(callback.from_user.id),
-                    reason="verify_admin_tempban_1h",
-                    action="ban",
-                    currently_banned=True,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "记录临时封禁事件失败 chat_id=%s user_id=%s error=%r",
-                    record.chat_id,
-                    record.user_id,
-                    exc,
-                    exc_info=True,
-                )
-            await store.delete(token)
-            await callback.answer("已临时封禁 1 小时")
-        elif action == "ban":
-            from ..bot_components.verification import (
-                ban_and_cleanup,
-                delete_prompt_message,
-            )
-
-            await delete_prompt_message(bot, record)
-            await ban_and_cleanup(
-                bot,
-                store,
-                record,
-                reason=f"admin:{callback.from_user.id}",
-                unban_after=False,
-            )
-            try:
-                await store.record_verification_event(
-                    chat_id=record.chat_id,
-                    user_id=record.user_id,
-                    username=record.username,
-                    event="admin_ban",
-                )
-                await store.record_ban_event(
-                    chat_id=record.chat_id,
-                    user_id=record.user_id,
-                    display_name=record.username or str(record.user_id),
-                    operator_id=callback.from_user.id,
-                    operator_name=callback.from_user.full_name
-                    or callback.from_user.username
-                    or str(callback.from_user.id),
-                    reason="verify_admin_ban",
-                    action="ban",
-                    currently_banned=True,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "记录管理员封禁事件失败 chat_id=%s user_id=%s error=%r",
-                    record.chat_id,
-                    record.user_id,
-                    exc,
-                    exc_info=True,
-                )
-            await callback.answer("已封禁该用户")
-        else:
-            await callback.answer("未知操作", show_alert=True)
+        # token 级串行化:与 web /verify 端点、过期清理器共用同一把锁,
+        # 防止管理员操作与清理器并发出现"管理员放行、用户却被封"(或反之)的冲突
+        token_lock = await store.acquire_token_lock(token)
+        try:
+            async with token_lock:
+                # 锁内二次确认:等待锁期间可能已被清理器或其他管理员处理
+                record = await store.get(token)
+                if record is None or record.status != "pending":
+                    await callback.answer("该验证已处理", show_alert=True)
+                    return
+                await _execute_admin_action(callback, bot, store, record, action)
+        finally:
+            # 异常路径也要释放,避免 _token_locks 常驻残留
+            await store.release_token_lock(token)
 
     return router
+
+
+async def _execute_admin_action(
+    callback: CallbackQuery,
+    bot: Bot,
+    store,
+    record,
+    action: str,
+) -> None:
+    """在 token 锁内执行管理员动作;record 已在锁内确认为 pending。"""
+    token = record.token
+    if action == "skip":
+        from ..bot_components.verification import (
+            delete_prompt_message,
+            lift_restrictions,
+        )
+
+        await lift_restrictions(bot, record)
+        await delete_prompt_message(bot, record)
+        try:
+            await store.record_verification_event(
+                chat_id=record.chat_id,
+                user_id=record.user_id,
+                username=record.username,
+                event="admin_skip",
+            )
+        except Exception as exc:
+            logger.warning(
+                "记录管理员跳过事件失败 chat_id=%s user_id=%s error=%r",
+                record.chat_id,
+                record.user_id,
+                exc,
+                exc_info=True,
+            )
+        await store.delete(token)
+        await callback.answer("已跳过验证并解除限制")
+    elif action == "tempban":
+        from ..bot_components.verification import delete_prompt_message
+
+        until_date = datetime.now(tz=timezone.utc) + timedelta(hours=1)
+        await delete_prompt_message(bot, record)
+        try:
+            await bot.ban_chat_member(
+                record.chat_id,
+                record.user_id,
+                until_date=until_date,
+                revoke_messages=True,
+            )
+        except TelegramBadRequest as exc:
+            logger.warning(
+                "临时封禁失败 chat_id=%s user_id=%s operator=%s error=%s",
+                record.chat_id,
+                record.user_id,
+                callback.from_user.id,
+                exc,
+                exc_info=exc,
+            )
+            await callback.answer("临时封禁失败，请查看日志", show_alert=True)
+            return
+        try:
+            await store.record_verification_event(
+                chat_id=record.chat_id,
+                user_id=record.user_id,
+                username=record.username,
+                event="admin_tempban",
+            )
+            await store.record_ban_event(
+                chat_id=record.chat_id,
+                user_id=record.user_id,
+                display_name=record.username or str(record.user_id),
+                operator_id=callback.from_user.id,
+                operator_name=callback.from_user.full_name
+                or callback.from_user.username
+                or str(callback.from_user.id),
+                reason="verify_admin_tempban_1h",
+                action="ban",
+                currently_banned=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "记录临时封禁事件失败 chat_id=%s user_id=%s error=%r",
+                record.chat_id,
+                record.user_id,
+                exc,
+                exc_info=True,
+            )
+        await store.delete(token)
+        await callback.answer("已临时封禁 1 小时")
+    elif action == "ban":
+        from ..bot_components.verification import (
+            ban_and_cleanup,
+            delete_prompt_message,
+        )
+
+        await delete_prompt_message(bot, record)
+        await ban_and_cleanup(
+            bot,
+            store,
+            record,
+            reason=f"admin:{callback.from_user.id}",
+            unban_after=False,
+        )
+        try:
+            await store.record_verification_event(
+                chat_id=record.chat_id,
+                user_id=record.user_id,
+                username=record.username,
+                event="admin_ban",
+            )
+            await store.record_ban_event(
+                chat_id=record.chat_id,
+                user_id=record.user_id,
+                display_name=record.username or str(record.user_id),
+                operator_id=callback.from_user.id,
+                operator_name=callback.from_user.full_name
+                or callback.from_user.username
+                or str(callback.from_user.id),
+                reason="verify_admin_ban",
+                action="ban",
+                currently_banned=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "记录管理员封禁事件失败 chat_id=%s user_id=%s error=%r",
+                record.chat_id,
+                record.user_id,
+                exc,
+                exc_info=True,
+            )
+        await callback.answer("已封禁该用户")
+    else:
+        await callback.answer("未知操作", show_alert=True)
 
 
 __all__ = ["build_verify_router"]

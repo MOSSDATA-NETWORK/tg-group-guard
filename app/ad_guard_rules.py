@@ -5,9 +5,42 @@ import logging
 import re
 from pathlib import Path
 from threading import RLock
+from typing import Any, Optional
 
 
 logger = logging.getLogger(__name__)
+
+# ===== 正则 ReDoS 防护 =====
+# 启发式 pattern 在消息热路径执行,标准库 re 无超时且回溯失控时持有 GIL。
+# regex 库对经典灾难模式有内建规避,并对残余病态模式提供原生 timeout。
+try:
+    import regex as _regex_engine
+except ImportError:
+    _regex_engine = None
+
+if _regex_engine is None:
+    logger.warning("未安装 regex 库(pip install regex),启发式规则正则将无超时防护")
+
+_PATTERN_ERROR_TYPES = (re.error,) if _regex_engine is None else (re.error, _regex_engine.error)
+_REGEX_TIMEOUT_SECONDS = 0.5
+
+
+def _compile_pattern(pattern_raw: str) -> Any:
+    return (_regex_engine or re).compile(pattern_raw)
+
+
+def heuristic_pattern_search(pattern: Any, text: str) -> bool:
+    """带超时的启发式规则匹配;超时按未命中处理,避免卡死事件循环。"""
+    if _regex_engine is not None and isinstance(pattern, _regex_engine.Pattern):
+        try:
+            return bool(pattern.search(text, timeout=_REGEX_TIMEOUT_SECONDS))
+        except TimeoutError:
+            logger.warning(
+                "广告守卫启发式规则正则执行超时(>%.1fs),本次按未命中处理",
+                _REGEX_TIMEOUT_SECONDS,
+            )
+            return False
+    return bool(pattern.search(text))
 
 
 _DEFAULT_PATTERN: str | None = None
@@ -45,21 +78,26 @@ class _RuleCache:
     def __init__(self) -> None:
         self._lock = RLock()
         self._path: Path | None = None
-        self._mtime: float | None = None
+        # 变更检测签名 = (st_mtime_ns, st_size),比 1 秒粒度的 mtime 更可靠
+        self._signature: tuple[int, int] | None = None
+        # 解析失败的文件签名:签名不变则静默跳过(避免每条消息都重读坏文件),
+        # 签名一变(管理员修复)立即重试,不会出现"修好了却永远不加载"
+        self._failed_signature: tuple[int, int] | None = None
         self._pattern_str: str | None = _DEFAULT_PATTERN
-        self._compiled_pattern: re.Pattern[str] | None = (
-            re.compile(_DEFAULT_PATTERN) if _DEFAULT_PATTERN else None
+        self._compiled_pattern: Any = (
+            _compile_pattern(_DEFAULT_PATTERN) if _DEFAULT_PATTERN else None
         )
         self._prompt_template: str = _DEFAULT_PROMPT_TEMPLATE
 
     def configure(self, path: Path | None) -> None:
         with self._lock:
             self._path = path
-            self._mtime = None
+            self._signature = None
+            self._failed_signature = None
             self._reset_to_default()
             self._ensure_loaded(force=True)
 
-    def get_pattern(self) -> re.Pattern[str] | None:
+    def get_pattern(self) -> Any:
         with self._lock:
             self._ensure_loaded()
             return self._compiled_pattern
@@ -72,7 +110,7 @@ class _RuleCache:
     def _reset_to_default(self) -> None:
         self._pattern_str = _DEFAULT_PATTERN
         self._compiled_pattern = (
-            re.compile(_DEFAULT_PATTERN) if _DEFAULT_PATTERN else None
+            _compile_pattern(_DEFAULT_PATTERN) if _DEFAULT_PATTERN else None
         )
         self._prompt_template = _DEFAULT_PROMPT_TEMPLATE
 
@@ -86,15 +124,23 @@ class _RuleCache:
         except FileNotFoundError:
             if force:
                 logger.info("广告守卫规则文件不存在，将继续使用默认规则：%s", path)
-            self._mtime = None
+            self._signature = None
+            self._failed_signature = None
             return
         except OSError as exc:
             if force:
                 logger.warning("读取广告守卫规则文件信息失败 %s: %s", path, exc)
             return
 
-        if not force and self._mtime is not None and stat.st_mtime <= self._mtime:
+        signature = (stat.st_mtime_ns, stat.st_size)
+        if not force and self._signature is not None and signature == self._signature:
             return
+        if (
+            not force
+            and self._failed_signature is not None
+            and signature == self._failed_signature
+        ):
+            return  # 已知坏文件且未变化,继续沿用当前(默认)规则
 
         try:
             raw = path.read_text(encoding="utf-8")
@@ -106,21 +152,22 @@ class _RuleCache:
             payload = json.loads(raw)
         except json.JSONDecodeError as exc:
             logger.warning("广告守卫规则文件 JSON 解析失败 %s: %s", path, exc)
-            self._mtime = stat.st_mtime
+            self._failed_signature = signature
             return
 
         if not isinstance(payload, dict):
             logger.warning("广告守卫规则文件根节点必须是对象，将使用默认规则：%s", path)
-            self._mtime = stat.st_mtime
+            self._failed_signature = signature
             return
 
         self._apply_payload(payload)
-        self._mtime = stat.st_mtime
+        self._signature = signature
+        self._failed_signature = None
 
     def _apply_payload(self, payload: dict[str, object]) -> None:
         pattern_str = _DEFAULT_PATTERN
         compiled_pattern = (
-            re.compile(_DEFAULT_PATTERN) if _DEFAULT_PATTERN else None
+            _compile_pattern(_DEFAULT_PATTERN) if _DEFAULT_PATTERN else None
         )
         prompt_template = _DEFAULT_PROMPT_TEMPLATE
 
@@ -128,8 +175,8 @@ class _RuleCache:
         if isinstance(raw_pattern, (str, bytes)) and str(raw_pattern).strip():
             candidate = str(raw_pattern)
             try:
-                compiled_pattern = re.compile(candidate)
-            except re.error as exc:
+                compiled_pattern = _compile_pattern(candidate)
+            except _PATTERN_ERROR_TYPES as exc:
                 logger.warning("忽略无效的 pattern 正则表达式 %r: %s", candidate, exc)
             else:
                 pattern_str = candidate
@@ -156,7 +203,8 @@ def configure_ad_guard_rules(path: Path | None) -> None:
     _CACHE.configure(path)
 
 
-def get_heuristic_pattern() -> re.Pattern[str] | None:
+def get_heuristic_pattern() -> Optional[Any]:
+    """返回已编译的启发式 pattern(regex 库或 stdlib re),需配合 heuristic_pattern_search 使用。"""
     return _CACHE.get_pattern()
 
 
