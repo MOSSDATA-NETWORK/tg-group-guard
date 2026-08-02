@@ -123,7 +123,7 @@ class RedisDailyScoreManager:
 
     def _build_key(self, chat_id: int, user_id: int) -> str:
         # perm 与旧的按日 key（prefix:YYYYMMDD:chat:user）隔离，避免串读
-        prefix = self.key_prefix.rstrip(":") if self.key_prefix else "kkbot:score"
+        prefix = self.key_prefix.rstrip(":") if self.key_prefix else "telegram_group_guard_bot:score"
         return f"{prefix}:perm:{chat_id}:{user_id}"
 
 

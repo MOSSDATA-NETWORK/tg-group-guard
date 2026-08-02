@@ -135,7 +135,7 @@ diff .env.example .env
 |------|------|------|
 | `DATABASE_PATH` | `data/verifications.sqlite3` | SQLite 路径（验证记录、警告、封禁/广告日志、合格名单） |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis 连接串（广告扣评分的权威存储，启动时不可达会直接报错） |
-| `REDIS_SCORE_PREFIX` | `kkbot:adscore` | 评分 key 前缀 |
+| `REDIS_SCORE_PREFIX` | `telegram_group_guard_bot:adscore` | 评分 key 前缀 |
 
 ### 入群验证
 

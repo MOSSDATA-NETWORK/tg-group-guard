@@ -251,7 +251,7 @@ def load_settings() -> Settings:
     )
     openai_timeout_seconds = max(int(openai_timeout_seconds_raw_str), 30)
     redis_url = _read_env("REDIS_URL", "redis://localhost:6379/0")
-    redis_score_prefix = _read_env("REDIS_SCORE_PREFIX", "kkbot:adscore") or "kkbot:adscore"
+    redis_score_prefix = _read_env("REDIS_SCORE_PREFIX", "telegram_group_guard_bot:adscore") or "telegram_group_guard_bot:adscore"
     ad_guard_score_skip_threshold = int(_read_env("AD_GUARD_SCORE_SKIP_THRESHOLD", "3"))
     ad_guard_score_ban_threshold = int(_read_env("AD_GUARD_SCORE_BAN_THRESHOLD", "-10"))
     warn_limit = max(int(_read_env("WARN_LIMIT", "3")), 1)
