@@ -119,9 +119,9 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
         if isinstance(session, RedirectResponse):
             return session
         return templates.TemplateResponse(
+            request,
             "admin_dashboard.html",
             {
-                "request": request,
                 "admin": session,
                 "chats": session["admin_chat_ids"],
                 "app_version": APP_VERSION,
@@ -132,9 +132,9 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
     async def admin_login(request: Request, error: str = "") -> HTMLResponse:
         if not settings.admin_web_enabled:
             return templates.TemplateResponse(
+                request,
                 "admin_login.html",
                 {
-                    "request": request,
                     "bot_username": settings.bot_username,
                     "enabled": False,
                     "error": "Admin WebUI 未启用。",
@@ -143,9 +143,9 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
             )
         if not settings.allowed_chat_ids:
             return templates.TemplateResponse(
+                request,
                 "admin_login.html",
                 {
-                    "request": request,
                     "bot_username": settings.bot_username,
                     "enabled": False,
                     "error": "未配置 ALLOWED_CHAT_IDS，无法确认群管理员身份。",
@@ -153,9 +153,9 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return templates.TemplateResponse(
+            request,
             "admin_login.html",
             {
-                "request": request,
                 "bot_username": settings.bot_username,
                 "enabled": True,
                 "error": error,
@@ -910,7 +910,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
     async def render_verification_page(request: Request, token: str) -> HTMLResponse:
         record = await store.get(token)
         context = _build_template_context(request, record, token)
-        return templates.TemplateResponse("verify.html", context)
+        return templates.TemplateResponse(request, "verify.html", context)
 
     @app.post("/verify/{token}")
     async def complete_verification(token: str) -> JSONResponse:
