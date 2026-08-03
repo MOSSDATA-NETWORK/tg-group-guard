@@ -67,8 +67,8 @@ logger = logging.getLogger(__name__)
 UTC = timezone.utc
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-ADMIN_COOKIE_NAME = "kk_admin"
-ADMIN_CSRF_COOKIE_NAME = "kk_admin_csrf"
+ADMIN_COOKIE_NAME = "tgg_admin"
+ADMIN_CSRF_COOKIE_NAME = "tgg_admin_csrf"
 SESSION_MAX_TOTAL = 5000  # 全局硬上限,防止内存爆炸
 
 
@@ -125,6 +125,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                 "admin": session,
                 "chats": session["admin_chat_ids"],
                 "app_version": APP_VERSION,
+                "csrf_cookie_name": ADMIN_CSRF_COOKIE_NAME,
             },
         )
 

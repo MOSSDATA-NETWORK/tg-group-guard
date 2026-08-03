@@ -16,7 +16,7 @@
     {
       "type": "stat",
       "title": "验证通过率（24h）",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 6, "w": 5, "x": 0, "y": 1 },
       "id": 2,
       "fieldConfig": {
@@ -55,7 +55,7 @@
     {
       "type": "stat",
       "title": "处理消息（24h）",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 6, "w": 5, "x": 5, "y": 1 },
       "id": 3,
       "fieldConfig": {
@@ -82,7 +82,7 @@
     {
       "type": "stat",
       "title": "广告拦截（24h）",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 6, "w": 5, "x": 10, "y": 1 },
       "id": 4,
       "fieldConfig": {
@@ -109,7 +109,7 @@
     {
       "type": "stat",
       "title": "LLM 调用进行中",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 6, "w": 4, "x": 15, "y": 1 },
       "id": 5,
       "fieldConfig": {
@@ -143,7 +143,7 @@
     {
       "type": "stat",
       "title": "评分 Redis 状态",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 6, "w": 5, "x": 19, "y": 1 },
       "id": 6,
       "fieldConfig": {
@@ -173,7 +173,7 @@
     {
       "type": "timeseries",
       "title": "消息处理速率（按结果）",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 7 },
       "id": 7,
       "fieldConfig": {
@@ -216,7 +216,7 @@
     {
       "type": "piechart",
       "title": "消息处理构成（24h）",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 9, "w": 6, "x": 12, "y": 7 },
       "id": 8,
       "fieldConfig": {
@@ -245,7 +245,7 @@
     {
       "type": "timeseries",
       "title": "验证结果速率",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 9, "w": 6, "x": 18, "y": 7 },
       "id": 9,
       "fieldConfig": {
@@ -292,7 +292,7 @@
     {
       "type": "timeseries",
       "title": "LLM 延迟分位",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 17 },
       "id": 11,
       "fieldConfig": {
@@ -335,7 +335,7 @@
     {
       "type": "timeseries",
       "title": "LLM 判定速率（按提供方）",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 9, "w": 8, "x": 12, "y": 17 },
       "id": 12,
       "fieldConfig": {
@@ -372,7 +372,7 @@
     {
       "type": "gauge",
       "title": "LLM 并发占用",
-      "datasource": { "type": "prometheus", "uid": "kk-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "tgg-prometheus" },
       "gridPos": { "h": 9, "w": 4, "x": 20, "y": 17 },
       "id": 13,
       "fieldConfig": {

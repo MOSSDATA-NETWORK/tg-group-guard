@@ -14,9 +14,9 @@ Bot 本身已通过 `/metrics` 端点暴露全部指标(`.env` 设 `ENABLE_METRI
 2. Grafana → **Dashboards → Import** → 上传 `grafana-dashboard.json`。
 3. 导入时在数据源下拉框选择你的 Prometheus 数据源,完成。
 
-> 若导入后面板无数据,是数据源 uid 不匹配(模板内引用 uid `kk-prometheus`)。
+> 若导入后面板无数据,是数据源 uid 不匹配(模板内引用 uid `tgg-prometheus`)。
 > 导入时选对数据源即可自动替换;仍不行的话,用文本编辑器打开 JSON,
-> 全局把 `"uid": "kk-prometheus"` 替换成你数据源的 uid 再导入。
+> 全局把 `"uid": "tgg-prometheus"` 替换成你数据源的 uid 再导入。
 
 ## 二、Prometheus 抓取配置
 

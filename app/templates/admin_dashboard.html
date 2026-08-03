@@ -208,7 +208,7 @@
       .footnote:empty { display: none; }
 
       /* ── 主区 ── */
-      .main { padding: 24px 26px 60px; min-width: 0; }
+      .main { --main-x: 26px; padding: 24px var(--main-x) 60px; min-width: 0; }
       .panel { display: none; }
       .panel.active { display: block; }
 
@@ -240,7 +240,7 @@
         font-weight: 500;
       }
 
-      input[type="text"], input[type="number"], input[type="password"],
+      input[type="text"], input[type="number"], input[type="password"], input[type="search"],
       select, textarea, .combobox {
         font: inherit;
         font-size: 13px;
@@ -280,6 +280,8 @@
       button:active { background: var(--paper); }
       button:disabled { opacity: 0.45; cursor: not-allowed; }
       button:disabled:hover { background: var(--surface); border-color: var(--rule-2); }
+      input:disabled, select:disabled { opacity: 0.45; cursor: not-allowed; }
+      input:disabled:hover, select:disabled:hover { border-color: var(--rule-2); }
       button.primary {
         background: var(--accent);
         border-color: var(--accent);
@@ -728,12 +730,17 @@
       }
       .update-log { margin-top: 14px; }
 
-      .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+      /* align-items:start —— 不加的话同一行的卡片会被最高的那张拉平，
+         「入群验证」6 项会被广告守卫的 17 项撑出上千像素空白。 */
+      .settings-grid {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 16px; align-items: start;
+      }
       .settings-group { padding: 16px; }
-      .settings-group h3 { font-size: 13.5px; margin-bottom: 4px; }
+      .settings-group h3 { font-size: 13.5px; margin-bottom: 4px; display: flex; align-items: center; gap: 7px; }
       .group-sub { font-size: 12px; color: var(--ink-3); line-height: 1.65; margin-bottom: 14px; }
       .settings-fields { display: flex; flex-direction: column; gap: 14px; }
-      .setting-item { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+      .setting-item { display: flex; flex-direction: column; gap: 5px; min-width: 0; position: relative; }
       .setting-label {
         font-size: 12.5px;
         color: var(--ink);
@@ -745,8 +752,11 @@
         color: var(--warn);
       }
       .setting-help.is-warn svg { width: 13px; height: 13px; flex: none; margin-top: 2px; }
-      .setting-check { display: flex; align-items: center; gap: 8px; min-height: var(--ctl); }
-      .setting-check input { width: 16px; height: 16px; margin: 0; }
+      /* .setting-item 已经是 flex column，这里必须显式改回 row，
+         否则复选框会被叠到标签上方并居中。 */
+      .setting-check { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; min-height: var(--ctl); }
+      .setting-check input { width: 16px; height: 16px; margin: 0; flex: none; }
+      .setting-check .setting-help { flex-basis: 100%; }
       .restart-badge {
         font-size: 10.5px;
         letter-spacing: 0.06em;
@@ -756,12 +766,52 @@
         background: var(--warn-bg);
         border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
       }
-      .settings-actions {
-        display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-        margin-top: 20px;
-        padding-top: 16px;
-        border-top: 1px solid var(--rule);
+      /* 47 项设置一屏放不下，保存按钮必须常驻，否则要滚到底才够得着。
+         通栏靠负外边距抵消 .main 的左右内边距，避免内容从两侧露出来。 */
+      .settings-bar {
+        position: sticky;
+        top: var(--hdr);
+        z-index: var(--z-sticky);
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        margin: 0 calc(var(--main-x) * -1) 16px;
+        padding: 11px var(--main-x);
+        background: var(--surface);
+        border-bottom: 1px solid var(--rule);
       }
+      .settings-search { position: relative; flex: 1 1 210px; min-width: 0; max-width: 320px; }
+      .settings-search svg {
+        position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+        width: 14px; height: 14px; color: var(--ink-3); pointer-events: none;
+      }
+      .settings-search input { width: 100%; padding-left: 29px; }
+      .settings-bar .spacer { flex: 1 1 0; }
+      .settings-status { font-size: 12px; color: var(--ink-3); }
+      .settings-status.is-dirty { color: var(--accent); }
+      .dirty-count {
+        font-size: 11px; letter-spacing: 0.04em;
+        padding: 1px 6px; border-radius: 3px;
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      }
+      /* 竖线用绝对定位而不是 border-left，避免切换脏状态时字段整体位移。 */
+      .setting-item.is-dirty::before, .setting-item.is-error::before {
+        content: ''; position: absolute;
+        left: -10px; top: 1px; bottom: 1px; width: 2px; border-radius: 1px;
+        background: var(--accent);
+      }
+      .setting-item.is-error::before { background: var(--danger); }
+      .setting-item.is-dirty > .setting-label::after {
+        content: '已改';
+        font-size: 10.5px; letter-spacing: 0.06em;
+        padding: 1px 5px; border-radius: 3px;
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      }
+      .setting-item.is-error input, .setting-item.is-error select { border-color: var(--danger); }
+      .setting-error { font-size: 11.5px; color: var(--danger); line-height: 1.6; }
+      .settings-empty { padding: 30px 16px; text-align: center; color: var(--ink-3); font-size: 13px; }
       .settings-group.is-danger { border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
       .danger-title { font-size: 13.5px; color: var(--danger); margin-bottom: 4px; }
       .source.is-empty { color: var(--ink-3); }
@@ -896,7 +946,9 @@
         .nav-item.active { background: none; }
         .nav-item.active::before { top: auto; bottom: 0; left: 10px; right: 10px; width: auto; height: 2px; }
         .footnote { display: none; }
-        .main { padding: 18px 14px 48px; }
+        .main { --main-x: 14px; padding: 18px var(--main-x) 48px; }
+        /* 侧栏在这个断点会横过来吸顶（47px 高），设置栏得往下让，否则两条会叠在一起 */
+        .settings-bar { top: calc(var(--hdr) + 47px); }
         .panel-head { align-items: flex-start; }
         thead th { top: 0; }
       }
@@ -922,16 +974,21 @@
       }
       /* 移动端输入框 ≥16px，防 iOS 聚焦时自动缩放 */
       @media (max-width: 640px) {
-        input[type="text"], input[type="number"], input[type="password"], select, textarea {
+        input[type="text"], input[type="number"], input[type="password"], input[type="search"], select, textarea {
           font-size: 16px;
         }
       }
       /* 触控设备把点击目标抬到 44px；桌面保持台账密度 */
       @media (pointer: coarse) {
-        button, .combobox, input[type="text"], input[type="number"], select {
+        button, .combobox, input[type="text"], input[type="number"], input[type="search"],
+        input[type="password"], select {
           min-height: 44px;
         }
         .segmented label { min-height: var(--tap); }
+        /* 复选框本体只有 16px，靠 label（有 for 关联，点了就是点开关）
+           撑出整条 44px 的可点区域。 */
+        .setting-check { min-height: var(--tap); }
+        .setting-check .setting-label { display: flex; align-items: center; min-height: var(--tap); }
         /* 触屏精度低，宁可牺牲行密度也要给复制按钮完整 44px；
            拉开 gap 是为了让 44px 的点击区不越界到上方的用户名链接。 */
         .user-cell { gap: 12px; }
@@ -1372,6 +1429,23 @@
             </div>
           </div>
 
+          <div class="settings-bar">
+            <div class="settings-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.65" y2="16.65"/></svg>
+              <input type="search" id="settings-filter" placeholder="搜索设置项…" aria-label="搜索设置项" autocomplete="off" />
+            </div>
+            <label class="setting-check" style="min-height:0;">
+              <input type="checkbox" id="settings-dirty-only" />
+              <span>仅看已修改</span>
+            </label>
+            <span class="spacer"></span>
+            <span class="settings-status" id="settings-status">修改后点击保存即可生效</span>
+            <button type="button" class="secondary" id="settings-reload">重新加载</button>
+            <button type="button" class="primary" id="settings-save">保存设置</button>
+          </div>
+
+          <div class="form-errors" id="settings-errors" role="alert" hidden></div>
+
           <div class="card version-card">
             <div class="version-row">
               <span><span class="v-label">当前版本：</span><span class="v-value" id="ver-current">—</span></span>
@@ -1394,6 +1468,7 @@
           </div>
 
           <div class="settings-grid" id="settings-groups" style="margin-top:16px;"></div>
+          <div class="settings-empty" id="settings-none" role="status" hidden></div>
 
           <div class="card settings-group" style="margin-top:16px;">
             <h3>按群差异化配置</h3>
@@ -1427,12 +1502,6 @@
             </div>
           </div>
 
-          <div class="form-errors" id="settings-errors" role="alert" hidden></div>
-          <div class="settings-actions">
-            <button type="button" class="primary" id="settings-save">保存设置</button>
-            <button type="button" class="secondary" id="settings-reload">重新加载</button>
-            <span class="meta" id="settings-meta">修改后点击保存即可生效</span>
-          </div>
         </section>
       </main>
     </div>
@@ -2000,13 +2069,17 @@
         return match ? decodeURIComponent(match[1]) : '';
       }
 
+      // cookie 名由后端 ADMIN_CSRF_COOKIE_NAME 注入。写死在前端的话,
+      // 后端改名后这里不会报错,只会静默拿到空 token,所有写操作被 403 挡掉。
+      const CSRF_COOKIE = {{ csrf_cookie_name | tojson }};
+
       async function doLogout(event) {
         event.preventDefault();
         leaveGuardBypass = true;
         try {
           const res = await fetch('/admin/logout', {
             method: 'POST',
-            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+            headers: { 'X-CSRF-Token': getCookie(CSRF_COOKIE) },
           });
           if (!res.ok) throw new Error('退出失败');
         } catch (err) {
@@ -2031,7 +2104,7 @@
             headers: {
               'Content-Type': 'application/json',
               'X-Requested-With': 'fetch',
-              'X-CSRF-Token': getCookie('kk_admin_csrf'),
+              'X-CSRF-Token': getCookie(CSRF_COOKIE),
             },
             body: JSON.stringify({ chat_id: chatId, user_id: userId }),
           });
@@ -2283,7 +2356,7 @@
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              'X-CSRF-Token': getCookie('kk_admin_csrf'),
+              'X-CSRF-Token': getCookie(CSRF_COOKIE),
             },
             body: JSON.stringify(payload),
           });
@@ -2649,7 +2722,7 @@
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              'X-CSRF-Token': getCookie('kk_admin_csrf'),
+              'X-CSRF-Token': getCookie(CSRF_COOKIE),
             },
             body: JSON.stringify({ rules }),
           });
@@ -2705,9 +2778,9 @@
       // ===== 离开页面提醒（防误关） =====
       let leaveGuardBypass = false;
       const leaveGuardToggle = document.getElementById('leave-guard-toggle');
-      leaveGuardToggle.checked = localStorage.getItem('kk_leave_guard') !== 'off';
+      leaveGuardToggle.checked = localStorage.getItem('tgg_leave_guard') !== 'off';
       leaveGuardToggle.addEventListener('change', () => {
-        localStorage.setItem('kk_leave_guard', leaveGuardToggle.checked ? 'on' : 'off');
+        localStorage.setItem('tgg_leave_guard', leaveGuardToggle.checked ? 'on' : 'off');
         showToast(leaveGuardToggle.checked ? '已开启离开页面提醒' : '已关闭离开页面提醒');
       });
       window.addEventListener('beforeunload', (e) => {
@@ -2721,14 +2794,18 @@
         const id = `set-${f.key}`;
         const badge = f.restart ? '<span class="restart-badge">需重启</span>' : '';
         const help = f.help ? `<span class="setting-help">${esc(f.help)}</span>` : '';
+        // 搜索既要能按中文标签找，也要能按 .env 里的键名找
+        const hay = esc(`${f.label} ${f.key} ${f.help || ''}`.toLowerCase());
         if (f.kind === 'bool') {
-          const ineffective = (f.key === 'AD_GUARD_ENABLED' && f.value === 'true' && f.effective === false)
-            ? `<span class="setting-help is-warn">
+          // 文案由 refreshAdGuardHint 实时填，这里只占位——否则改了 AI 总开关
+          // 却要等保存重载才知道广告守卫仍然不生效。
+          const ineffective = f.key === 'AD_GUARD_ENABLED'
+            ? `<span class="setting-help is-warn" id="ad-guard-hint" hidden>
                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-                 <span>已开启但当前未生效：请检查 AI 总开关与对应端点/密钥配置</span>
+                 <span></span>
                </span>`
             : '';
-          return `<div class="setting-item setting-check">
+          return `<div class="setting-item setting-check" data-search="${hay}">
             <input type="checkbox" id="${id}" data-key="${f.key}"${f.value === 'true' ? ' checked' : ''} />
             <label for="${id}" class="setting-label">${esc(f.label)} ${badge}</label>
             ${help}${ineffective}
@@ -2740,7 +2817,8 @@
             `<option value="${esc(c)}"${c === f.value ? ' selected' : ''}>${esc(c)}</option>`).join('');
           input = `<select id="${id}" data-key="${f.key}">${opts}</select>`;
         } else if (f.kind === 'secret') {
-          input = `<input type="password" id="${id}" data-key="${f.key}" value=""
+          // 密钥值不下发，只下发"是否已设置"；广告守卫的生效判断要用到它
+          input = `<input type="password" id="${id}" data-key="${f.key}" value="" data-is-set="${f.is_set ? '1' : ''}"
             placeholder="${f.is_set ? '已设置，留空保持不变' : '未设置'}" autocomplete="new-password" />`;
         } else {
           const type = (f.kind === 'int' || f.kind === 'float') ? 'number' : 'text';
@@ -2748,7 +2826,7 @@
           const ph = f.nullable ? ' placeholder="留空表示不启用 / 不设置"' : '';
           input = `<input type="${type}"${step} id="${id}" data-key="${f.key}" value="${esc(f.value)}"${ph} />`;
         }
-        return `<div class="setting-item">
+        return `<div class="setting-item" data-search="${hay}">
           <label for="${id}" class="setting-label">${esc(f.label)} ${badge}</label>
           ${input}${help}
         </div>`;
@@ -2759,16 +2837,19 @@
         settingsBusy = busy;
         document.getElementById('settings-save').disabled = busy;
         document.getElementById('settings-reload').disabled = busy;
+        // 保存期间锁住字段：请求飞行中改的值会被保存成功后的基线重建当成"本来就是这样"，
+        // 于是改动既没提交、也不显示为待保存。
+        document.querySelectorAll('#settings-groups [data-key]').forEach((el) => { el.disabled = busy; });
       }
 
       async function loadSettings() {
-        if (settingsBusy) return;
+        if (settingsBusy) return false;
         setSettingsBusy(true);
         try {
           let data;
           try {
             const res = await fetch('/admin/api/settings');
-            if (res.status === 401) { location.href = '/admin/login'; return; }
+            if (res.status === 401) { location.href = '/admin/login'; return false; }
             if (!res.ok) {
               const err = await res.json().catch(() => ({}));
               throw new Error(err.detail || '加载失败');
@@ -2776,17 +2857,161 @@
             data = await res.json();
           } catch (err) {
             showToast(err.message || '设置加载失败', true);
-            return;
+            return false;
           }
           document.getElementById('settings-groups').innerHTML = (data.groups || []).map((g) => `
             <div class="card settings-group">
-              <h3>${esc(g.name)}</h3>
+              <h3>${esc(g.name)}<span class="dirty-count" hidden></span></h3>
               <div class="settings-fields">${g.fields.map(settingInputHtml).join('')}</div>
             </div>`).join('');
           markFormClean('settings');
+          markSettingsClean();
+          refreshAdGuardHint();
+          applySettingsFilter();
+          return true;
         } finally {
           setSettingsBusy(false);
         }
+      }
+
+      // 逐项脏值：整体快照（formSnapshot.settings）只能回答"有没有改动",
+      // 要在字段旁边标出"这项被改过"就得留一份 key -> 基线值 的映射。
+      let settingsClean = {};
+      const settingFieldValue = (el) => (el.type === 'checkbox' ? el.checked : el.value);
+
+      function markSettingsClean() {
+        settingsClean = {};
+        document.querySelectorAll('#settings-groups [data-key]').forEach((el) => {
+          settingsClean[el.dataset.key] = settingFieldValue(el);
+        });
+        refreshSettingsDirty();
+      }
+
+      function refreshSettingsDirty() {
+        let total = 0;
+        document.querySelectorAll('#settings-groups .settings-group').forEach((card) => {
+          let n = 0;
+          card.querySelectorAll('.setting-item').forEach((item) => {
+            const el = item.querySelector('[data-key]');
+            if (!el) return;
+            const dirty = settingsClean[el.dataset.key] !== settingFieldValue(el);
+            item.classList.toggle('is-dirty', dirty);
+            if (dirty) n += 1;
+          });
+          const chip = card.querySelector('.dirty-count');
+          if (chip) { chip.textContent = `${n} 项已改`; chip.hidden = n === 0; }
+          total += n;
+        });
+        const status = document.getElementById('settings-status');
+        status.textContent = total ? `${total} 项待保存` : '修改后点击保存即可生效';
+        status.classList.toggle('is-dirty', total > 0);
+        return total;
+      }
+
+      // 镜像后端 recompute_ad_guard_enabled（app/runtime_settings.py）的判定规则，
+      // 让"开了但不会生效"当场可见，而不是保存并重载后才发现。
+      function refreshAdGuardHint() {
+        const hint = document.getElementById('ad-guard-hint');
+        if (!hint) return;
+        const val = (key) => {
+          const el = document.querySelector(`#settings-groups [data-key="${key}"]`);
+          if (!el) return null;
+          return el.type === 'checkbox' ? el.checked : el.value.trim();
+        };
+        const secretFilled = (key) => {
+          const el = document.querySelector(`#settings-groups [data-key="${key}"]`);
+          return !!el && (!!el.value.trim() || !!el.dataset.isSet);
+        };
+        let msg = '';
+        if (val('AD_GUARD_ENABLED') === true) {
+          if (val('AI_ENABLED') === false) {
+            msg = '已开启但不会生效：请先打开同组的「AI 总开关」。';
+          } else if (val('AD_GUARD_PROVIDER') === 'ollama' && !val('OLLAMA_ENDPOINT')) {
+            msg = '已开启但不会生效：「LLM 提供方」选了 ollama，但「Ollama 端点」为空。';
+          } else if (val('AD_GUARD_PROVIDER') !== 'ollama' && !secretFilled('OPENAI_API_KEY')) {
+            msg = '已开启但不会生效：「LLM 提供方」选了 openai，但「OpenAI API Key」未配置。';
+          }
+        }
+        hint.querySelector('span').textContent = msg;
+        hint.hidden = !msg;
+      }
+
+      function applySettingsFilter() {
+        const q = document.getElementById('settings-filter').value.trim().toLowerCase();
+        const dirtyOnly = document.getElementById('settings-dirty-only').checked;
+        let shown = 0;
+        document.querySelectorAll('#settings-groups .settings-group').forEach((card) => {
+          let n = 0;
+          card.querySelectorAll('.setting-item').forEach((item) => {
+            const ok = (!q || (item.dataset.search || '').includes(q))
+              && (!dirtyOnly || item.classList.contains('is-dirty'));
+            item.hidden = !ok;
+            if (ok) n += 1;
+          });
+          card.hidden = n === 0;
+          shown += n;
+        });
+        const none = document.getElementById('settings-none');
+        none.hidden = shown > 0 || !(q || dirtyOnly);
+        none.textContent = dirtyOnly && !q ? '当前没有已修改的设置项。' : '没有匹配的设置项。';
+      }
+
+      // 后端返回的是拼好的中文句子（含字段标签或 KEY），没有结构化字段名，
+      // 只能反向匹配定位。长标签优先，否则「阈值」会抢走「广告判定阈值」的错误。
+      // 红框、错误文案、aria-invalid 三样必须一起清，
+      // 少清一样就会剩下"看着正常但读屏仍报错"或者文案赖着不走。
+      function clearSettingError(item) {
+        if (!item) return;
+        item.classList.remove('is-error');
+        const tip = item.querySelector('.setting-error');
+        if (tip) tip.remove();
+        const el = item.querySelector('[data-key]');
+        if (el) el.removeAttribute('aria-invalid');
+      }
+
+      function anchorSettingErrors(errors) {
+        // 按 aria-invalid 找，不按 .is-error——用户改过的字段类名已被去掉，
+        // 只认类名会漏掉那些字段残留的文案。
+        document.querySelectorAll('#settings-groups [aria-invalid]')
+          .forEach((el) => clearSettingError(el.closest('.setting-item')));
+        if (!errors || !errors.length) return 0;
+
+        const fields = Array.from(document.querySelectorAll('#settings-groups [data-key]')).map((el) => {
+          const item = el.closest('.setting-item');
+          const labelNode = item.querySelector('.setting-label');
+          return { el, item, key: el.dataset.key, label: labelNode ? labelNode.childNodes[0].textContent.trim() : '' };
+        });
+        // 长名先匹配，短名才不会被当成长名的一部分误命中；
+        // 标签整体优先于 key，否则用户往文本框里填个字段名，报错就会指到那个字段去。
+        const byLabel = fields.filter((f) => f.label).sort((a, b) => b.label.length - a.label.length);
+        const byKey = fields.slice().sort((a, b) => b.key.length - a.key.length);
+
+        let first = null;
+        let matched = 0;
+        errors.forEach((msg) => {
+          // 后端的报错一律把出错字段名放在开头（见 runtime_settings.py 的 ValueError），
+          // 而末尾常常回显用户填的内容——所以必须先认开头。只用 includes 的话，
+          // 往 A 字段里填 B 的字段名，报错就会指到 B 去。includes 仅作兜底。
+          const hit = byLabel.find((f) => msg.startsWith(f.label))
+            || byKey.find((f) => msg.startsWith(f.key))
+            || byLabel.find((f) => msg.includes(f.label))
+            || byKey.find((f) => msg.includes(f.key));
+          if (!hit || hit.item.classList.contains('is-error')) return;
+          hit.item.classList.add('is-error');
+          hit.el.setAttribute('aria-invalid', 'true');
+          hit.item.insertAdjacentHTML('beforeend', `<span class="setting-error">${esc(msg)}</span>`);
+          matched += 1;
+          if (!first) first = hit;
+        });
+        if (first) {
+          // 出错项可能正被搜索条件藏着，先把过滤清掉再定位过去
+          document.getElementById('settings-filter').value = '';
+          document.getElementById('settings-dirty-only').checked = false;
+          applySettingsFilter();
+          first.el.focus({ preventScroll: true });
+          first.item.scrollIntoView({ block: 'center' });
+        }
+        return matched;
       }
 
       function showFormErrors(boxId, errors) {
@@ -2817,7 +3042,7 @@
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              'X-CSRF-Token': getCookie('kk_admin_csrf'),
+              'X-CSRF-Token': getCookie(CSRF_COOKIE),
             },
             body: JSON.stringify({ values }),
           });
@@ -2825,20 +3050,33 @@
           if (!res.ok) {
             const errs = Array.isArray(data.errors) && data.errors.length
               ? data.errors : [data.detail || '保存失败'];
+            // 先渲染总错误框，再定位到字段——顺序反了的话
+            // showFormErrors 的 scrollIntoView 会把视口又拉回顶部。
             showFormErrors('settings-errors', errs);
-            showToast('保存失败，请查看下方错误说明', true);
+            const anchored = anchorSettingErrors(errs);
+            showToast(anchored ? '保存失败，已定位到出错项' : '保存失败，请查看错误说明', true);
             return;
           }
+          anchorSettingErrors(null);
           showFormErrors('settings-errors', null);
           formClean.settings = sent;
-          document.getElementById('settings-meta').textContent =
-            `上次保存：${new Date().toLocaleTimeString()}`;
+          markSettingsClean();
+          const savedAt = new Date().toLocaleTimeString();
+          // 后端会把越界数值夹进合法区间，密钥也只回传"是否已设置"，
+          // 拿本地值当基线就会显示成"已保存"却和服务器存的不是一回事。重拉一次对齐。
+          setSettingsBusy(false);
+          const reloaded = await loadSettings();
+          // 重拉失败时界面还停在本地值上，此时报"已保存并生效"会让人以为看到的就是服务器存下的；
+          // 成功提示也会盖掉 loadSettings 刚弹的失败提示。所以只保留重启提醒。
+          document.getElementById('settings-status').textContent = reloaded
+            ? `上次保存：${savedAt}`
+            : `已保存（${savedAt}），但刷新失败，当前显示可能与服务器不一致`;
           if (Array.isArray(data.restart_required) && data.restart_required.length) {
             openRestartModal(data.restart_required);
-          } else if (!data.applied || data.applied.length === 0) {
-            showToast('没有需要保存的改动');
-          } else {
-            showToast(`已保存并生效（${data.applied.length} 项）`);
+          } else if (reloaded) {
+            showToast(!data.applied || data.applied.length === 0
+              ? '没有需要保存的改动'
+              : `已保存并生效（${data.applied.length} 项）`);
           }
         } catch (err) {
           showToast(err.message || '保存失败', true);
@@ -2865,7 +3103,7 @@
         try {
           const res = await fetch('/admin/api/restart', {
             method: 'POST',
-            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+            headers: { 'X-CSRF-Token': getCookie(CSRF_COOKIE) },
           });
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -2881,7 +3119,7 @@
         waitForRestartAndReload();
       }
       function waitForRestartAndReload() {
-        document.getElementById('settings-meta').textContent = '服务重启中…恢复后页面将自动刷新';
+        document.getElementById('settings-status').textContent = '服务重启中…恢复后页面将自动刷新';
         showToast('服务重启中，请稍候…');
         setTimeout(() => {
           // 服务再也起不来时这个定时器会一直跑，页面永远停在"重启中"。
@@ -2890,7 +3128,7 @@
           const timer = setInterval(async () => {
             if (++ticks > 60) {
               clearInterval(timer);
-              document.getElementById('settings-meta').textContent = '等待服务恢复超时，请登录服务器确认进程状态';
+              document.getElementById('settings-status').textContent = '等待服务恢复超时，请登录服务器确认进程状态';
               showToast('等待服务恢复超时，请到服务器确认', true);
               return;
             }
@@ -2984,7 +3222,7 @@
         try {
           const res = await fetch('/admin/api/version/check', {
             method: 'POST',
-            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+            headers: { 'X-CSRF-Token': getCookie(CSRF_COOKIE) },
           });
           if (!res.ok) throw new Error('检查失败');
           renderVersion(await res.json());
@@ -3010,7 +3248,7 @@
         try {
           const res = await fetch('/admin/api/update', {
             method: 'POST',
-            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+            headers: { 'X-CSRF-Token': getCookie(CSRF_COOKIE) },
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.detail || '更新启动失败');
@@ -3103,7 +3341,7 @@
         try {
           const res = await fetch('/admin/api/rollback', {
             method: 'POST',
-            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+            headers: { 'X-CSRF-Token': getCookie(CSRF_COOKIE) },
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.detail || '回滚启动失败');
@@ -3123,7 +3361,7 @@
         try {
           const res = await fetch('/admin/api/shutdown', {
             method: 'POST',
-            headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
+            headers: { 'X-CSRF-Token': getCookie(CSRF_COOKIE) },
           });
           // 服务真的关停时连接会被切断，走 catch；这里只拦被服务端明确拒绝的情况。
           if (!res.ok) {
@@ -3140,7 +3378,7 @@
               return;
             }
             // 连接中断说明服务已经开始关停，属于预期。
-            document.getElementById('settings-meta').textContent = '服务正在关停…此页面即将失联';
+            document.getElementById('settings-status').textContent = '服务正在关停…此页面即将失联';
             showToast('服务正在关停…');
             return;
           }
@@ -3148,7 +3386,7 @@
           showToast(err.message || '关停请求失败', true);
           return;
         }
-        document.getElementById('settings-meta').textContent = '服务正在关停…此页面即将失联';
+        document.getElementById('settings-status').textContent = '服务正在关停…此页面即将失联';
         showToast('服务正在关停…');
       }
 
@@ -3242,7 +3480,7 @@
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              'X-CSRF-Token': getCookie('kk_admin_csrf'),
+              'X-CSRF-Token': getCookie(CSRF_COOKIE),
             },
             body: JSON.stringify({ chat_id: Number(chatId), values }),
           });
@@ -3286,6 +3524,16 @@
       document.getElementById('settings-reload').addEventListener('click', () => {
         if (confirmDiscard('settings', '系统设置')) loadSettings();
       });
+      // 字段是 loadSettings 动态渲染的，绑在容器上一次到位
+      document.getElementById('settings-groups').addEventListener('input', (e) => {
+        if (!e.target.dataset.key) return;
+        clearSettingError(e.target.closest('.setting-item'));
+        refreshSettingsDirty();
+        refreshAdGuardHint();
+        if (document.getElementById('settings-dirty-only').checked) applySettingsFilter();
+      });
+      document.getElementById('settings-filter').addEventListener('input', applySettingsFilter);
+      document.getElementById('settings-dirty-only').addEventListener('change', applySettingsFilter);
       document.getElementById('ver-check').addEventListener('click', checkVersionNow);
       document.getElementById('ver-update').addEventListener('click', startUpdate);
       document.getElementById('restart-now').addEventListener('click', restartNow);
