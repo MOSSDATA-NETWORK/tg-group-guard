@@ -857,21 +857,34 @@
       .kw-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
       .kw-row {
         display: grid;
-        grid-template-columns: 92px 1fr 110px auto 44px;
-        gap: 10px; align-items: start;
+        grid-template-columns: 106px minmax(0, 1fr) 110px 116px 150px 44px;
+        gap: 10px; align-items: center;
         padding: 12px; border: 1px solid rgba(219, 234, 254, 0.95);
         border-radius: 14px; background: #fbfdff;
       }
+      .kw-row [hidden] { display: none !important; }
+      .kw-row select, .kw-row input[type="text"] { min-width: 0; width: 100%; }
+      /* 控件钉到固定列:各行的 命中条件/解析模式/删除按钮 纵向对齐 */
+      .kw-row .kw-type, .kw-row .kd-type { grid-column: 1; grid-row: 1; }
+      .kw-row .kw-keywords, .kw-row .kw-pattern,
+      .kw-row .kd-keywords, .kw-row .kd-pattern { grid-column: 2; grid-row: 1; }
+      .kw-row .kw-match, .kw-row .kd-match { grid-column: 3; grid-row: 1; }
+      .kw-row .kw-case { grid-column: 4; grid-row: 1; }
+      /* 解析模式钉列:关键词模式在第 5 列;正则模式(.is-pattern)与"任一命中"同列(第 3 列) */
+      .kw-row .kw-parse-mode { grid-column: 5; grid-row: 1; }
+      .kw-row.is-pattern .kw-parse-mode { grid-column: 3; }
+      .kw-row .kw-del { grid-column: 6; grid-row: 1; }
       .kw-row textarea {
-        grid-column: 1 / -1; min-height: 58px; resize: vertical;
+        grid-column: 1 / -1; grid-row: 2; min-height: 58px; resize: vertical;
         font-family: inherit; font-size: 13px; line-height: 1.6;
       }
-      .kw-row .kw-del { align-self: start; }
-      .kw-row .kw-case { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--color-text-muted); white-space: nowrap; padding-top: 8px; }
+      .kw-row .kw-del { justify-self: end; }
+      .kw-row .kw-case { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--color-text-muted); white-space: nowrap; }
       .kw-errors { margin: 0 0 14px; padding: 10px 14px; border-radius: 12px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: 13px; line-height: 1.7; }
       .kw-errors ul { margin: 4px 0 0; padding-left: 18px; }
       @media (max-width: 720px) {
         .kw-row { grid-template-columns: 1fr; }
+        .kw-row > * { grid-column: auto !important; grid-row: auto !important; }
         .kw-row textarea { grid-column: auto; }
       }
 
@@ -2004,7 +2017,7 @@
         const isPattern = typeof rule.pattern === 'string' && rule.pattern.length > 0;
         const keywords = Array.isArray(rule.keywords) ? rule.keywords.join('，') : '';
         return `
-          <div class="kw-row">
+          <div class="kw-row${isPattern ? ' is-pattern' : ''}">
             <select class="kw-type" aria-label="匹配方式">
               <option value="keywords"${isPattern ? '' : ' selected'}>关键词</option>
               <option value="pattern"${isPattern ? ' selected' : ''}>正则</option>
@@ -2140,6 +2153,7 @@
         if (!sel) return;
         const row = sel.closest('.kw-row');
         const isPattern = sel.value === 'pattern';
+        row.classList.toggle('is-pattern', isPattern);
         row.querySelector('.kw-keywords').hidden = isPattern;
         row.querySelector('.kw-match').hidden = isPattern;
         row.querySelector('.kw-case').hidden = isPattern;
