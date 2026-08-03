@@ -4,950 +4,956 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>TG-GUARD ADMIN · 后台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+SC:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
     />
     <style>
+      /* ═══ Token：唯一来源。全站颜色一律走 var()，禁止裸十六进制 ═══ */
       :root {
-        --color-primary: #2563eb;
-        --color-primary-hover: #1d4ed8;
-        --color-bg: #f8fafc;
-        --color-card: #ffffff;
-        --color-card-hover: #f1f5f9;
-        --color-border: #e2e8f0;
-        --color-border-strong: #cbd5e1;
-        --color-text: #0f172a;
-        --color-text-muted: #64748b;
-        --color-text-faint: #94a3b8;
-        --color-accent: #ea580c;
-        --color-destructive: #dc2626;
-        --color-destructive-hover: #b91c1c;
-        --color-destructive-bg: #fef2f2;
-        --color-success: #059669;
-        --color-success-bg: #ecfdf5;
-        --color-warn-bg: #fffbeb;
-        --color-warn: #b45309;
-        --color-muted-bg: #eef2ff;
-        color-scheme: light;
+        color-scheme: light dark;
+        --paper: #f4f5f3;
+        --surface: #ffffff;
+        --surface-2: #fafbf9;
+        --ink: #15181a;
+        --ink-2: #4c5459;
+        --ink-3: #67716c;
+        --rule: #e0e3e0;
+        --rule-2: #c8cdc9;
+        --accent: #0e5c4f;
+        --accent-soft: #e2efeb;
+        --pass: #14664f;
+        --warn: #8a5a0b;
+        --danger: #a3291f;
+        --pass-bg: #e6f1ec;
+        --warn-bg: #f7efdf;
+        --danger-bg: #f7e9e7;
+        --sans: "IBM Plex Sans SC", "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+        --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --z-sticky: 20;
+        --z-header: 30;
+        --z-pop: 40;
+        --z-modal: 60;
+        --z-toast: 80;
+        --r: 5px;
+        --r-lg: 8px;
+        --hdr: 56px;
+        --ctl: 34px;
+        --tap: 44px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: #101312;
+          --surface: #171b1a;
+          --surface-2: #1c2120;
+          --ink: #e7eae8;
+          --ink-2: #a3aca8;
+          --ink-3: #8a9491;
+          --rule: #272d2b;
+          --rule-2: #38403d;
+          --accent: #5fc0aa;
+          --accent-soft: #16302a;
+          --pass: #5fc0aa;
+          --warn: #d9a248;
+          --danger: #e0776b;
+          --pass-bg: #16302a;
+          --warn-bg: #332a15;
+          --danger-bg: #331e1b;
+        }
       }
 
+      /* ═══ 基础 ═══ */
       * { box-sizing: border-box; }
-
-      html, body {
+      html { -webkit-text-size-adjust: 100%; }
+      body {
         margin: 0;
-        padding: 0;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
-        color: var(--color-text);
-        background: var(--color-bg);
+        font-family: var(--sans);
         font-size: 14px;
-        -webkit-text-size-adjust: 100%;
-        -webkit-tap-highlight-color: transparent;
+        line-height: 1.55;
+        background: var(--paper);
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
       }
+      h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
+      p { margin: 0; }
+      ul { margin: 0; padding: 0; list-style: none; }
 
-      button, [role="button"], a, .combobox, .nav-item, .listbox li, .segmented label {
-        touch-action: manipulation;
-      }
+      /* hidden 属性只是 display:none 的默认值，任何显式 display 规则都会盖掉它。
+         全站用 el.hidden 开关元素，所以这里统一兜底。 */
+      [hidden] { display: none !important; }
 
-      a { color: inherit; }
-
-      .layout {
-        min-height: 100vh;
-        min-height: 100dvh;
-        display: grid;
-        grid-template-columns: 240px minmax(0, 1fr);
-        grid-template-rows: auto minmax(0, 1fr);
-      }
-
-      .header {
-        grid-column: 1 / -1;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        padding: 14px 24px;
-        padding-top: max(14px, env(safe-area-inset-top, 0px));
-        background: var(--color-card);
-        border-bottom: 1px solid var(--color-border);
-        position: sticky;
-        top: 0;
-        z-index: 10;
-      }
-
-      .brand { display: flex; align-items: center; gap: 12px; }
-      .brand .logo {
-        width: 36px; height: 36px; border-radius: 10px;
-        display: flex; align-items: center; justify-content: center;
-        background: rgba(37, 99, 235, 0.1); color: var(--color-primary);
-      }
-      .brand .logo svg { width: 20px; height: 20px; }
-      .brand h1 { margin: 0; font-size: 16px; font-weight: 600; }
-      .brand .sub { font-size: 12px; color: var(--color-text-muted); }
-
-      .header-right { display: flex; align-items: center; gap: 14px; font-size: 13px; }
-      .header-right .who { color: var(--color-text-muted); }
-      .header-right .who strong { color: var(--color-text); font-weight: 600; }
-
-      button, input {
-        font: inherit;
-        color: inherit;
-        border: 1px solid var(--color-border);
-        background: var(--color-card);
-        border-radius: 8px;
-        padding: 8px 12px;
-        transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
-      }
-      input[type="text"] {
-        min-width: 160px;
-        font-variant-numeric: tabular-nums;
-      }
-      input::placeholder { color: var(--color-text-faint); }
-      button { cursor: pointer; }
-      button:hover:not(:disabled) { background: var(--color-card-hover); }
-      button:focus-visible, input:focus-visible {
-        outline: 2px solid var(--color-primary);
-        outline-offset: 1px;
-      }
-
-      /* 自定义 listbox：完全自绘弹出层，符合主题；保留键盘/无障碍语义 */
-      .field {
-        display: inline-flex; flex-direction: column; gap: 4px;
-        font-size: 12px;
-        position: relative;
-      }
-      .field-label {
-        color: var(--color-text-muted);
-        font-weight: 500;
-        padding-left: 2px;
-      }
-      .combobox {
-        position: relative;
-        display: inline-flex; align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        min-width: 200px;
-        min-height: 36px;
-        padding: 8px 12px;
-        border: 1px solid var(--color-border);
-        background: var(--color-card);
-        border-radius: 8px;
-        color: var(--color-text);
-        font: inherit;
-        cursor: pointer;
-        text-align: left;
-        font-variant-numeric: tabular-nums;
-        transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-      }
-      .combobox:hover { border-color: var(--color-border-strong); background: var(--color-card-hover); }
-      .combobox:focus-visible,
-      .combobox[aria-expanded="true"] {
-        outline: 0;
-        border-color: var(--color-primary);
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-      }
-      .combobox .chevron {
-        width: 14px; height: 14px;
-        color: var(--color-text-muted);
-        flex-shrink: 0;
-        transition: transform 180ms ease, color 180ms ease;
-      }
-      .combobox:hover .chevron { color: var(--color-text); }
-      .combobox[aria-expanded="true"] .chevron { transform: rotate(180deg); color: var(--color-primary); }
-      .combobox .value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-      .listbox {
-        position: absolute;
-        top: calc(100% + 6px);
-        left: 0;
-        min-width: 100%;
-        max-width: min(320px, calc(100vw - 32px));
-        max-height: 280px;
-        overflow-y: auto;
-        margin: 0;
-        padding: 6px;
-        list-style: none;
-        background: var(--color-card);
-        border: 1px solid var(--color-border);
-        border-radius: 10px;
-        box-shadow: 0 16px 32px -16px rgba(15, 23, 42, 0.24),
-          0 4px 12px -4px rgba(15, 23, 42, 0.08);
-        z-index: 30;
-        -webkit-overflow-scrolling: touch;
-      }
-      .listbox[hidden] { display: none; }
-      .listbox li {
-        display: flex; align-items: center; gap: 8px;
-        padding: 8px 10px;
-        border-radius: 6px;
-        color: var(--color-text);
-        cursor: pointer;
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-      }
-      .listbox li:hover,
-      .listbox li.is-active {
-        background: var(--color-card-hover);
-      }
-      .listbox li[aria-selected="true"] {
-        background: var(--color-muted-bg);
-        color: var(--color-primary);
-        font-weight: 500;
-      }
-      .listbox li .check {
-        width: 14px; height: 14px;
-        opacity: 0;
-        color: var(--color-primary);
-        flex-shrink: 0;
-      }
-      .listbox li[aria-selected="true"] .check { opacity: 1; }
-
-      /* Segmented control（两态/多态切换，比下拉清晰）*/
-      .segmented {
-        display: inline-flex;
-        padding: 3px;
-        border: 1px solid var(--color-border);
-        background: #f1f5f9;
-        border-radius: 8px;
-        gap: 2px;
-      }
-      .segmented input { position: absolute; opacity: 0; pointer-events: none; }
-      .segmented label {
-        padding: 6px 12px;
-        font-size: 13px;
-        color: var(--color-text-muted);
-        border-radius: 6px;
-        cursor: pointer;
-        user-select: none;
-        transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
-      }
-      .segmented label:hover { color: var(--color-text); }
-      .segmented input:checked + label {
-        background: var(--color-card);
-        color: var(--color-primary);
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-      }
-      .segmented input:focus-visible + label {
-        outline: 2px solid var(--color-primary);
-        outline-offset: 2px;
-      }
-      button.primary {
-        background: var(--color-primary);
-        color: #fff;
-        border-color: var(--color-primary);
-      }
-      button.primary:hover:not(:disabled) {
-        background: var(--color-primary-hover);
-        border-color: var(--color-primary-hover);
-      }
-      button.danger {
-        background: var(--color-destructive-bg);
-        color: var(--color-destructive);
-        border-color: rgba(220, 38, 38, 0.24);
-      }
-      button.danger:hover:not(:disabled) {
-        background: var(--color-destructive);
-        color: #fff;
-        border-color: var(--color-destructive);
-      }
-      button:disabled { opacity: 0.55; cursor: not-allowed; }
-
-      .sidebar {
-        background: var(--color-card);
-        border-right: 1px solid var(--color-border);
-        padding: 16px 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-      .nav-item {
-        display: flex; align-items: center; gap: 10px;
-        padding: 10px 12px; border-radius: 8px;
-        cursor: pointer; user-select: none;
-        color: var(--color-text-muted);
-        border: 1px solid transparent;
-        min-height: 44px;
-      }
-      .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
-      .nav-item:hover { background: var(--color-card-hover); color: var(--color-text); }
-      .nav-item.active {
-        background: var(--color-muted-bg);
-        color: var(--color-primary);
-        font-weight: 500;
-      }
-      .nav-item .count {
-        margin-left: auto;
-        font-size: 12px;
-        color: var(--color-text-faint);
-        font-variant-numeric: tabular-nums;
-      }
-      .sidebar .footnote {
-        margin-top: auto;
-        padding: 12px;
-        font-size: 12px;
-        color: var(--color-text-faint);
-        line-height: 1.6;
-      }
-
-      .main {
-        padding: 24px;
-        padding-left: max(24px, env(safe-area-inset-left, 0px));
-        padding-right: max(24px, env(safe-area-inset-right, 0px));
-        padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
-        overflow: hidden;
-      }
-      .panel { display: none; }
-      .panel.active { display: flex; flex-direction: column; gap: 16px; }
-      .panel-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-      .panel-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
-      .panel-head p { margin: 4px 0 0; font-size: 13px; color: var(--color-text-muted); }
-
-      .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-
-      .card {
-        background: var(--color-card);
-        border: 1px solid var(--color-border);
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-      }
-
-      .table-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; }
-      table { width: 100%; border-collapse: collapse; min-width: 720px; }
-      body.single-chat .col-chat { display: none; }
-      thead th {
-        text-align: left;
-        padding: 12px 16px;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--color-text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        background: #f8fafc;
-        border-bottom: 1px solid var(--color-border);
-        white-space: nowrap;
-        position: sticky;
-        top: 0;
-        z-index: 1;
-      }
-      tbody td {
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--color-border);
-        vertical-align: top;
-        font-size: 13px;
-      }
-      tbody tr:last-child td { border-bottom: 0; }
-      tbody tr { transition: background-color 180ms ease; }
-      tbody tr:hover { background: var(--color-card-hover); }
-      td .time { font-variant-numeric: tabular-nums; color: var(--color-text); }
-      td .sub { color: var(--color-text-muted); font-size: 12px; margin-top: 2px; }
-      td .preview {
-        max-width: 360px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        color: var(--color-text);
-      }
-      td .meta-line { color: var(--color-text-muted); font-size: 12px; margin-top: 2px; }
-
-      .badge {
-        display: inline-flex; align-items: center; gap: 4px;
-        padding: 2px 8px; border-radius: 999px;
-        font-size: 12px; line-height: 1.4;
-        background: #f1f5f9; color: var(--color-text-muted);
-        border: 1px solid transparent;
-        white-space: nowrap;
-      }
-      .badge.flagged { background: var(--color-destructive-bg); color: var(--color-destructive); border-color: rgba(220, 38, 38, 0.18); }
-      .badge.passed { background: var(--color-success-bg); color: var(--color-success); border-color: rgba(5, 150, 105, 0.18); }
-      .badge.warn { background: var(--color-warn-bg); color: var(--color-warn); border-color: rgba(180, 83, 9, 0.18); }
-      .badge.info { background: var(--color-muted-bg); color: var(--color-primary); border-color: rgba(37, 99, 235, 0.18); }
-
-      .row-actions { display: flex; gap: 8px; }
-
-      .footer { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-      .footer .meta { font-size: 12px; color: var(--color-text-muted); }
-
-      .empty {
-        padding: 60px 24px; text-align: center; color: var(--color-text-muted);
-      }
-      .empty svg { width: 36px; height: 36px; color: var(--color-text-faint); margin-bottom: 12px; }
-      .empty h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--color-text); }
-      .empty p { margin: 0; font-size: 13px; }
-
-      .toast {
-        position: fixed; right: 24px; bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-        z-index: 50;
-        background: var(--color-text); color: #fff;
-        padding: 12px 16px; border-radius: 10px;
-        font-size: 13px; opacity: 0; transform: translateY(8px);
-        transition: opacity 200ms ease, transform 200ms ease;
-        max-width: 360px;
-      }
-      .toast.show { opacity: 1; transform: translateY(0); }
-      .toast.error { background: var(--color-destructive); }
-
-      @media (max-width: 900px) {
-        .layout { grid-template-columns: 1fr; }
-        .sidebar {
-          flex-direction: row;
-          overflow-x: auto;
-          padding: 8px;
-          gap: 4px;
-          position: sticky;
-          top: 56px;
-          z-index: 9;
-          -webkit-overflow-scrolling: touch;
-        }
-        .sidebar .footnote { display: none; }
-        .nav-item {
-          white-space: nowrap;
-          flex: 0 0 auto;
-          padding: 10px 14px;
-        }
-        .nav-item .count { margin-left: 4px; }
-        .main { padding: 16px; }
-        .header { padding: 12px 16px; position: sticky; top: 0; }
-        .brand .sub { display: none; }
-        .header-right .who {
-          max-width: 140px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .panel-head { gap: 8px; }
-        .filters {
-          width: 100%;
-          align-items: flex-end;
-        }
-        .combobox { min-width: 0; width: 100%; }
-        input[type="text"] { width: 100%; min-width: 0; }
-        .field { flex: 1 1 140px; }
-        button { min-height: 40px; }
-        thead th, tbody td { padding: 10px 12px; }
-        .kpi-value { font-size: 24px; }
-      }
-
-      @media (max-width: 480px) {
-        .main { padding: 12px; }
-        .header { padding: 10px 14px; }
-        .header-right { gap: 8px; }
-        .header-right .who { display: none; }
-        .panel-head h2 { font-size: 16px; }
-        .filters { gap: 6px; }
-        .kpi { padding: 12px 14px; }
-        .kpi-value { font-size: 20px; }
-        .legend { flex-wrap: wrap; row-gap: 4px; }
-        table { min-width: 560px; }
-        .preview { max-width: 200px; }
-        .toast { right: 12px; left: 12px; max-width: none; }
-        .trend { gap: 8px; height: 140px; }
-        .bars span { width: 6px; }
-        .trend-col .day { font-size: 10px; }
-      }
-
-      /* UI/UX Pro 系统覆盖：安全运营后台，数据密集但低噪声 */
-      :root {
-        --color-primary: #1e40af;
-        --color-primary-hover: #1d4ed8;
-        --color-secondary: #3b82f6;
-        --color-bg: #f5f7fb;
-        --color-card: #ffffff;
-        --color-card-hover: #f8fafc;
-        --color-border: #dbeafe;
-        --color-border-strong: #bfdbfe;
-        --color-text: #0f172a;
-        --color-text-muted: #475569;
-        --color-text-faint: #94a3b8;
-        --color-accent: #d97706;
-        --color-destructive: #dc2626;
-        --color-destructive-hover: #b91c1c;
-        --color-destructive-bg: #fef2f2;
-        --color-success: #047857;
-        --color-success-bg: #ecfdf5;
-        --color-warn-bg: #fffbeb;
-        --color-warn: #b45309;
-        --color-muted-bg: #eff6ff;
-        --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 16px 32px -28px rgba(30, 64, 175, 0.28);
-        --shadow-popover: 0 20px 44px -24px rgba(15, 23, 42, 0.28), 0 8px 16px -12px rgba(15, 23, 42, 0.12);
-        --radius-lg: 16px;
-        --radius-md: 12px;
-        --font-sans: "Fira Sans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
-        --font-mono: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
-      }
-
-      html, body {
-        font-family: var(--font-sans);
-        background:
-          radial-gradient(circle at 14% 0%, rgba(59, 130, 246, 0.10), transparent 30%),
-          linear-gradient(180deg, #f8fbff 0%, var(--color-bg) 34%, #f8fafc 100%);
-      }
-      .layout { grid-template-columns: 252px minmax(0, 1fr); }
-      .header {
-        background: rgba(255, 255, 255, 0.88);
-        backdrop-filter: blur(16px);
-        box-shadow: 0 1px 0 rgba(219, 234, 254, 0.8);
-      }
-      .brand .logo {
-        background: linear-gradient(135deg, rgba(30, 64, 175, 0.14), rgba(59, 130, 246, 0.08));
-        box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.10);
-      }
-      .brand h1 { letter-spacing: -0.02em; }
-      button, input, .combobox { min-height: 38px; }
-      button:hover:not(:disabled), .combobox:hover {
-        border-color: var(--color-border-strong);
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-      }
-      .sidebar {
-        background: rgba(255, 255, 255, 0.82);
-        backdrop-filter: blur(14px);
-        padding: 18px 14px;
-        gap: 6px;
-      }
-      .nav-item {
-        border-radius: 12px;
-        font-weight: 500;
-        transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
-      }
-      .nav-item:hover { border-color: rgba(191, 219, 254, 0.9); }
-      .nav-item.active {
-        background: linear-gradient(135deg, rgba(30, 64, 175, 0.11), rgba(59, 130, 246, 0.08));
-        border-color: rgba(30, 64, 175, 0.16);
-        box-shadow: inset 3px 0 0 var(--color-primary);
-      }
-      .nav-item .count {
-        min-width: 24px;
-        padding: 1px 7px;
-        border-radius: 999px;
-        background: rgba(148, 163, 184, 0.12);
-        text-align: center;
-        color: var(--color-text-muted);
-      }
-      .main {
-        padding: 28px;
-        padding-left: max(28px, env(safe-area-inset-left, 0px));
-        padding-right: max(28px, env(safe-area-inset-right, 0px));
-      }
-      .panel.active { gap: 18px; }
-      .panel-head {
-        padding: 2px 2px 0;
-        align-items: flex-start;
-      }
-      .panel-head h2 {
-        font-size: 22px;
-        letter-spacing: -0.03em;
-      }
-      .panel-head p { color: var(--color-text-muted); }
-      .filters {
-        padding: 10px;
-        border: 1px solid rgba(219, 234, 254, 0.85);
-        border-radius: var(--radius-lg);
-        background: rgba(255, 255, 255, 0.72);
-        box-shadow: 0 8px 24px -22px rgba(15, 23, 42, 0.24);
-      }
-      .field-label {
-        color: var(--color-text-muted);
-        font-weight: 600;
-      }
-      .segmented {
-        border-color: rgba(219, 234, 254, 0.9);
-        background: #eef4ff;
-        border-radius: 10px;
-      }
-      .segmented label { min-height: 30px; display: inline-flex; align-items: center; }
-      .segmented input:checked + label {
-        color: var(--color-primary);
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), inset 0 0 0 1px rgba(30, 64, 175, 0.08);
-      }
-      .card, .kpi {
-        border-color: rgba(219, 234, 254, 0.95);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-card);
-      }
-      .table-wrap { max-height: calc(100vh - 260px); }
-      table { min-width: 820px; }
-      thead th {
-        background: linear-gradient(180deg, #f8fbff 0%, #f1f6ff 100%);
-        color: #334155;
-        font-weight: 700;
-      }
-      tbody td { background: rgba(255, 255, 255, 0.72); }
-      tbody tr:nth-child(even) td { background: rgba(248, 250, 252, 0.72); }
-      tbody tr:hover td { background: #eff6ff; }
-      td .time, .kpi-value, .nav-item .count, .footer .meta, .user-cell code {
-        font-family: var(--font-mono);
-      }
-      .badge {
-        padding: 3px 9px;
-        font-weight: 600;
-        border-color: currentColor;
-        border-opacity: 0.2;
-      }
-      .badge.info { background: #eff6ff; color: #1e40af; }
-      .badge.passed { background: #ecfdf5; color: #047857; }
-      .badge.flagged { background: #fef2f2; color: #b91c1c; }
-      .badge.warn { background: #fffbeb; color: #b45309; }
-      .footer {
-        background: linear-gradient(180deg, rgba(248, 251, 255, 0.72), rgba(255, 255, 255, 0.95));
-        border-top: 1px solid rgba(219, 234, 254, 0.85);
-      }
-      .kpi {
-        position: relative;
-        overflow: hidden;
-        padding: 18px 20px;
-      }
-      .kpi::after {
-        content: "";
-        position: absolute;
-        inset: auto 16px 0 16px;
-        height: 3px;
-        border-radius: 999px 999px 0 0;
-        background: linear-gradient(90deg, rgba(30, 64, 175, 0.9), rgba(59, 130, 246, 0.18));
-      }
-      .kpi-label { font-weight: 700; color: var(--color-text-muted); }
-      .kpi-value { color: #0f172a; letter-spacing: -0.04em; }
-      .chart-card, .overview-row .card { border-radius: var(--radius-lg); }
-      .trend { border-top-color: rgba(191, 219, 254, 0.9); }
-      .bars span { border-radius: 999px 999px 4px 4px; }
-      .listbox, .modal-card { box-shadow: var(--shadow-popover); }
-      .modal-card { border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
-      .modal-msg { background: #f8fbff; border: 1px solid rgba(219, 234, 254, 0.9); }
-      .empty { color: var(--color-text-muted); }
-
-      @media (max-width: 900px) {
-        .layout { grid-template-columns: 1fr; }
-        .sidebar {
-          top: 61px;
-          border-right: 0;
-          border-bottom: 1px solid var(--color-border);
-        }
-        .filters { width: 100%; }
-        .panel-head { gap: 12px; }
-        .main { padding: 18px; }
-        .table-wrap { max-height: 68vh; }
-      }
-
-      @media (max-width: 480px) {
-        .main { padding: 14px; }
-        .panel-head h2 { font-size: 18px; }
-        .filters { padding: 8px; }
-        table { min-width: 680px; }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
-      }
-
-      /* Overview 面板 */
-      .kpi-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 12px;
-      }
-      .kpi {
-        background: var(--color-card);
-        border: 1px solid var(--color-border);
-        border-radius: 12px;
-        padding: 16px 18px;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-      }
-      .kpi-label { font-size: 12px; color: var(--color-text-muted); }
-      .kpi-value {
-        font-size: 28px; font-weight: 600; margin-top: 4px;
+      /* 数据层专用等宽 + 等宽数字。中文正文不进这一层 */
+      .mono, td.time, .time, .kpi-value, .count, .v-value,
+      .user-cell .sub, .meta-line, .heat-axis, .trend-col .day {
+        font-family: var(--mono);
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.01em;
       }
-      .kpi-sub {
-        font-size: 12px; color: var(--color-text-muted); margin-top: 4px;
-        font-variant-numeric: tabular-nums;
+
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        border-radius: 2px;
       }
 
-      .chart-card { padding: 16px 20px; }
-      .card-head {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 4px 0 12px;
-      }
-      .card-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
-      .legend { display: flex; gap: 12px; font-size: 12px; color: var(--color-text-muted); }
-      .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
-
-      .trend {
+      /* ═══ 骨架 ═══ */
+      .layout {
         display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 14px;
-        align-items: end;
-        height: 180px;
-        padding: 8px 4px 4px;
-        border-top: 1px dashed var(--color-border);
+        grid-template-columns: 216px minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+        min-height: 100vh;
       }
-      .trend-col {
-        display: flex; flex-direction: column; align-items: center; height: 100%;
+
+      /* ── 顶栏 ── */
+      .header {
+        grid-column: 1 / -1;
+        position: sticky;
+        top: 0;
+        z-index: var(--z-header);
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        height: var(--hdr);
+        padding: 0 20px;
+        background: var(--surface);
+        border-bottom: 1px solid var(--rule);
+      }
+      .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .logo {
+        width: 24px; height: 24px; flex: none;
+        display: grid; place-items: center;
+        color: var(--accent);
+      }
+      .logo svg { width: 20px; height: 20px; }
+      .brand h1 { font-size: 13px; letter-spacing: 0.08em; white-space: nowrap; }
+      .brand .sub { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+      .header-right {
+        margin-left: auto;
+        display: flex; align-items: center; gap: 14px;
+        font-size: 12.5px; color: var(--ink-2);
+      }
+      .version-badge {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        padding: 3px 7px;
+        border: 1px solid var(--rule-2);
+        border-radius: var(--r);
+        color: var(--ink-2);
+        background: var(--surface-2);
+      }
+      .leave-guard { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+      .leave-guard input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+      .who { white-space: nowrap; }
+      .who strong { color: var(--ink); font-weight: 600; }
+      #logout-form { margin: 0; }
+
+      /* ── 侧栏 ── */
+      .sidebar {
+        border-right: 1px solid var(--rule);
+        background: var(--surface);
+        padding: 18px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .nav-item {
         position: relative;
+        display: flex; align-items: center; gap: 10px;
+        min-height: 38px;
+        padding: 0 20px;
+        font-size: 13.5px;
+        color: var(--ink-2);
+        cursor: pointer;
+        user-select: none;
+        transition: color 160ms, background 160ms;
       }
-      .bars {
-        display: flex; align-items: flex-end; gap: 4px;
-        height: 100%; width: 100%;
-        justify-content: center;
+      .nav-item svg { width: 15px; height: 15px; flex: none; opacity: 0.7; }
+      .nav-item:hover { color: var(--ink); background: var(--surface-2); }
+      .nav-item.active { color: var(--ink); font-weight: 600; background: var(--surface-2); }
+      .nav-item.active svg { opacity: 1; color: var(--accent); }
+      .nav-item.active::before {
+        content: "";
+        position: absolute; left: 0; top: 5px; bottom: 5px;
+        width: 2px; background: var(--accent);
       }
-      .bars span {
-        display: block;
-        width: 10px;
-        border-radius: 4px 4px 0 0;
-        transition: height 280ms ease, filter 160ms ease;
-        min-height: 2px;
+      .nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+      .count {
+        margin-left: auto;
+        font-size: 11.5px;
+        color: var(--ink-3);
+        background: var(--surface-2);
+        border: 1px solid var(--rule);
+        border-radius: 20px;
+        padding: 0 6px;
+        min-width: 20px;
+        text-align: center;
+      }
+      .nav-item.active .count { border-color: var(--rule-2); }
+      #settings-update-count:not([hidden]) {
+        color: var(--warn);
+        border-color: var(--warn);
+        background: var(--warn-bg);
+        font-weight: 600;
+      }
+      .footnote {
+        margin-top: auto;
+        padding: 14px 20px 0;
+        font-size: 11px;
+        line-height: 1.6;
+        color: var(--ink-3);
+        overflow-wrap: break-word;
+      }
+      .footnote:empty { display: none; }
+
+      /* ── 主区 ── */
+      .main { padding: 24px 26px 60px; min-width: 0; }
+      .panel { display: none; }
+      .panel.active { display: block; }
+
+      .panel-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-bottom: 22px;
+      }
+      .panel-head h2 { font-size: 20px; margin-bottom: 3px; }
+      .panel-head p { font-size: 12.5px; color: var(--ink-2); max-width: 68ch; }
+
+      /* ═══ 表单控件 ═══ */
+      .filters { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+      .field {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        min-width: 0;
+      }
+      .field-label {
+        font-size: 10.5px;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        font-weight: 500;
+      }
+
+      input[type="text"], input[type="number"], input[type="password"],
+      select, textarea, .combobox {
+        font: inherit;
+        font-size: 13px;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1px solid var(--rule-2);
+        border-radius: var(--r);
+        padding: 0 10px;
+        min-height: var(--ctl);
+        transition: border-color 160ms, box-shadow 160ms;
+      }
+      textarea { padding: 8px 10px; line-height: 1.6; resize: vertical; }
+      input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; }
+      input:hover, select:hover, textarea:hover, .combobox:hover { border-color: var(--ink-3); }
+      input:focus-visible, select:focus-visible, textarea:focus-visible, .combobox:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px var(--accent-soft);
+      }
+      input[type="checkbox"] { accent-color: var(--accent); }
+
+      button {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1px solid var(--rule-2);
+        border-radius: var(--r);
+        min-height: var(--ctl);
+        padding: 0 14px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 160ms, border-color 160ms, color 160ms;
+      }
+      button:hover { background: var(--surface-2); border-color: var(--ink-3); }
+      button:active { background: var(--paper); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      button:disabled:hover { background: var(--surface); border-color: var(--rule-2); }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--surface);
+      }
+      button.primary:hover { filter: brightness(1.12); background: var(--accent); }
+      button.secondary { color: var(--ink-2); }
+      button.secondary:hover { color: var(--ink); }
+      button.danger { color: var(--danger); border-color: var(--danger); background: var(--surface); }
+      button.danger:hover { background: var(--danger-bg); border-color: var(--danger); }
+
+      /* combobox */
+      .combobox {
+        display: flex; align-items: center; gap: 8px;
+        min-width: 148px;
+        text-align: left;
         cursor: pointer;
       }
-      .bars span:hover { filter: brightness(1.12); }
-      .bar-join { background: var(--color-primary); }
-      .bar-pass { background: var(--color-success); }
-      .bar-ban  { background: var(--color-destructive); }
-      .trend-col .day {
-        font-size: 11px; color: var(--color-text-muted);
-        margin-top: 6px;
-        font-variant-numeric: tabular-nums;
+      .combobox .value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .combobox .chevron { width: 14px; height: 14px; flex: none; color: var(--ink-3); transition: transform 160ms; }
+      .combobox[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+      .listbox {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        /* 宽度跟内容走，不然会被触发按钮的窄宽度卡住，把群号截成省略号 */
+        width: max-content;
+        min-width: 100%;
+        max-width: min(300px, 78vw);
+        max-height: 264px;
+        overflow-y: auto;
+        z-index: var(--z-pop);
+        background: var(--surface);
+        border: 1px solid var(--rule-2);
+        border-radius: var(--r);
+        box-shadow: 0 6px 20px rgb(0 0 0 / 0.10);
+        padding: 4px;
       }
-      .trend-col .tip {
-        position: absolute; bottom: calc(100% + 4px);
-        background: var(--color-text); color: #fff;
-        font-size: 11px; padding: 6px 8px; border-radius: 6px;
+      .listbox li {
+        display: grid;
+        grid-template-columns: 14px minmax(0, 1fr);
+        gap: 7px;
+        align-items: center;
+        padding: 7px 9px;
+        border-radius: 3px;
+        font-size: 13px;
+        color: var(--ink-2);
+        cursor: pointer;
+      }
+      .listbox li > span {
+        overflow: hidden;
+        text-overflow: ellipsis;
         white-space: nowrap;
-        opacity: 0; pointer-events: none;
-        transition: opacity 180ms ease;
       }
-      .trend-col:hover .tip { opacity: 1; }
+      .listbox li:hover { background: var(--surface-2); color: var(--ink); }
+      .listbox li.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+      /* 选中勾用 SVG，未选中时留出同宽占位，避免选中态整行横向抖动 */
+      .listbox li .check { width: 14px; height: 14px; visibility: hidden; }
+      .listbox li[aria-selected="true"] { color: var(--accent); }
+      .listbox li[aria-selected="true"] .check { visibility: visible; }
+
+      /* 分段筛选 */
+      .segmented {
+        display: inline-flex;
+        border: 1px solid var(--rule-2);
+        border-radius: var(--r);
+        overflow: hidden;
+        background: var(--surface);
+      }
+      .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+      .segmented label {
+        display: flex; align-items: center;
+        min-height: calc(var(--ctl) - 2px);
+        padding: 0 11px;
+        font-size: 12.5px;
+        color: var(--ink-2);
+        cursor: pointer;
+        border-left: 1px solid var(--rule);
+        white-space: nowrap;
+        transition: background 160ms, color 160ms;
+      }
+      .segmented label:first-of-type { border-left: 0; }
+      .segmented label:hover { background: var(--surface-2); color: var(--ink); }
+      .segmented input:checked + label {
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 600;
+        box-shadow: inset 0 -2px 0 var(--accent);
+      }
+      .segmented input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -2px; }
+      fieldset.field { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
+      fieldset.field > legend { padding: 0; }
+
+      /* ═══ 卡片 / 容器 ═══ */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--rule);
+        border-radius: var(--r-lg);
+      }
+      .card-head {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px;
+        padding: 13px 16px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .card-head h3 {
+        font-size: 11px;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+      }
+
+      /* ═══ 概览 KPI：不用卡片，只用横线分栏 ═══ */
+      .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-top: 1px solid var(--ink);
+        border-bottom: 1px solid var(--rule);
+        margin-bottom: 26px;
+      }
+      .kpi { padding: 15px 18px 17px; border-left: 1px solid var(--rule); min-width: 0; }
+      .kpi:first-child { border-left: 0; padding-left: 0; }
+      .kpi-label {
+        font-size: 10.5px;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        margin-bottom: 7px;
+      }
+      .kpi-value { font-size: 28px; font-weight: 500; line-height: 1.1; letter-spacing: -0.03em; }
+      .kpi-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
+
+      /* 趋势图 */
+      .chart-card { margin-bottom: 20px; }
+      .legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--ink-2); }
+      .legend span { display: flex; align-items: center; gap: 5px; }
+      .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+      .trend {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        align-items: end;
+        gap: 10px;
+        padding: 20px 16px 12px;
+        min-height: 168px;
+      }
+      .trend-col { position: relative; display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 0; }
+      .trend-col .bars { display: flex; align-items: flex-end; gap: 3px; height: 112px; }
+      .trend-col .bars > span { width: 9px; border-radius: 2px 2px 0 0; display: block; min-height: 2px; }
+      .bar-join { background: var(--accent); }
+      .bar-pass { background: var(--pass); opacity: 0.55; }
+      .bar-ban { background: var(--danger); }
+      .trend-col .day { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+      /* display:none 而非 opacity:0——绝对定位的 tip 若参与布局，最边上的一列会撑出横向滚动条。 */
+      .trend-col .tip {
+        display: none;
+        position: absolute;
+        bottom: calc(100% - 6px);
+        left: 50%;
+        z-index: var(--z-pop);
+        padding: 5px 9px;
+        color: var(--surface);
+        background: var(--ink);
+        border-radius: var(--r);
+        font-size: 11px;
+        line-height: 1.4;
+        white-space: nowrap;
+        pointer-events: none;
+        transform: translateX(-50%);
+      }
+      @media (hover: hover) and (pointer: fine) {
+        .trend-col:hover .tip { display: block; }
+        .trend-col:first-child .tip { left: 0; transform: none; }
+        .trend-col:last-child .tip { left: auto; right: 0; transform: none; }
+      }
 
       .overview-row {
         display: grid;
-        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
-        gap: 12px;
-      }
-      .overview-row .card { padding: 16px 20px; }
-      @media (max-width: 1100px) {
-        .overview-row { grid-template-columns: 1fr; }
+        grid-template-columns: repeat(auto-fit, minmax(268px, 1fr));
+        gap: 16px;
       }
 
+      /* 热力图 */
+      .overview-row > .card { display: flex; flex-direction: column; }
+      .overview-row thead th { padding-left: 10px; padding-right: 10px; }
+      .overview-row tbody td { padding-left: 10px; padding-right: 10px; }
       .heatmap {
-        display: grid;
-        grid-template-columns: repeat(24, 1fr);
-        gap: 3px;
-        margin-top: 8px;
+        flex: 1;
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        min-height: 132px;
+        padding: 18px 16px 8px;
       }
-      .heatmap span {
-        aspect-ratio: 1 / 1;
-        border-radius: 3px;
-        background: rgba(37, 99, 235, 0.08);
-        transition: background 180ms ease, transform 180ms ease;
+      .heatmap > span {
+        flex: 1;
+        min-width: 0;
+        height: calc(var(--v, 0) * 1%);
+        min-height: 2px;
+        border-radius: 2px 2px 0 0;
+        background: var(--accent);
       }
-      .heatmap span:hover { transform: scale(1.2); }
       .heat-axis {
-        display: flex; justify-content: space-between;
-        font-size: 11px; color: var(--color-text-muted);
-        margin-top: 6px; padding: 0 2px;
-        font-variant-numeric: tabular-nums;
+        display: flex;
+        justify-content: space-between;
+        padding: 0 16px 14px;
+        font-size: 10.5px;
+        color: var(--ink-3);
       }
 
-      .top-list { list-style: none; padding: 0; margin: 8px 0 0; }
+      /* Top 列表 */
+      .top-list { padding: 6px 16px 14px; }
       .top-list li {
-        display: flex; justify-content: space-between; align-items: center;
+        display: flex; align-items: baseline; gap: 10px;
         padding: 8px 0;
-        border-bottom: 1px solid var(--color-border);
+        border-bottom: 1px solid var(--rule);
         font-size: 13px;
       }
       .top-list li:last-child { border-bottom: 0; }
-      .top-list .source { color: var(--color-text); }
-      .top-list .count { color: var(--color-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
-
-      .user-cell { min-width: 0; }
-      .user-cell .user-name {
-        color: var(--color-text); font-weight: 500;
-        text-decoration: none;
-      }
-      .user-cell .user-name:hover { color: var(--color-primary); text-decoration: underline; }
-      .user-cell .sub { display: inline-flex; align-items: center; gap: 4px; }
-      .user-cell code {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 11px; color: var(--color-text-muted);
+      .top-list .source { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .top-list .count {
+        margin-left: 0;
+        font-family: var(--mono);
         font-variant-numeric: tabular-nums;
+        background: none; border: 0; padding: 0;
+        color: var(--ink);
+      }
+
+      /* ═══ 表格 ═══ */
+      .table-wrap { overflow: auto; max-width: 100%; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      thead th {
+        position: sticky;
+        top: 0;
+        z-index: var(--z-sticky);
+        background: var(--surface);
+        text-align: left;
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        white-space: nowrap;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--rule-2);
+      }
+      tbody td {
+        padding: 11px 14px;
+        border-bottom: 1px solid var(--rule);
+        vertical-align: top;
+      }
+      tbody tr:last-child td { border-bottom: 0; }
+      tbody tr:hover td { background: var(--surface-2); }
+      td.time, td .time { color: var(--ink-2); font-size: 12px; white-space: nowrap; }
+      td .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+      .user-cell { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+      /* ID 和复制按钮不换行，否则窄列会把整行撑到两倍高；溢出交给表格自身的横向滚动 */
+      .user-cell .sub { white-space: nowrap; }
+      .user-name { color: var(--ink); }
+      .row-actions { display: flex; gap: 6px; white-space: nowrap; }
+
+      /* 单群时隐藏「群」列 */
+      body.single-chat .col-chat { display: none; }
+
+      /* 可点开详情的行：真实交互语义由 JS 补 role/键盘，样式这里给足反馈 */
+      tr.clickable-row { cursor: pointer; }
+      tr.clickable-row:focus { outline: none; }
+      tr.clickable-row:focus-visible { outline: none; }
+      tr.clickable-row:focus-visible td {
+        background: var(--accent-soft);
+        box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent);
+      }
+      tr.clickable-row:focus-visible td:first-child { box-shadow: inset 2px 0 0 var(--accent), inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+      tr.clickable-row:focus-visible td:last-child { box-shadow: inset -2px 0 0 var(--accent), inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+
+      /* 消息列吃掉剩余宽度：max-width:0 让该列的最小内容宽度归零，
+         auto 表格布局就会把剩余空间全给它，内部 .preview 再省略号截断。 */
+      .col-msg { width: 100%; max-width: 0; min-width: 240px; }
+      .preview {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--ink-2);
       }
       .copy-btn {
-        width: 22px; height: 22px;
-        display: inline-flex; align-items: center; justify-content: center;
-        padding: 0; border: 0; background: transparent;
-        color: var(--color-text-muted); cursor: pointer;
-        border-radius: 4px;
+        position: relative;
+        min-height: 22px;
+        padding: 0 5px;
+        font-size: 11px;
+        line-height: 1;
+        color: var(--ink-3);
+        border-color: var(--rule);
       }
-      .copy-btn svg { width: 12px; height: 12px; }
-      .copy-btn:hover { background: var(--color-border); color: var(--color-text); }
-
-      tr.clickable-row { cursor: pointer; }
-      tr.clickable-row:hover, tr.clickable-row:focus {
-        background: rgba(37, 99, 235, 0.04);
-        outline: none;
+      /* 按钮视觉保持 22px 以维持台账行密度，点击区用伪元素撑开。
+         注意：伪元素必须给显式长度，用 max(100%,…) 在 button 内不会生成盒子。
+         竖向只到 26px，再高就会盖住上方的用户名链接。 */
+      .copy-btn::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: var(--tap);
+        height: 26px;
+        transform: translate(-50%, -50%);
       }
+      .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+      .copy-btn svg { display: block; width: 12px; height: 12px; }
 
+      /* 徽标：颜色 + 文案双编码，不靠颜色单独承载语义 */
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 7px;
+        border-radius: 3px;
+        font-size: 11.5px;
+        font-weight: 500;
+        white-space: nowrap;
+        border: 1px solid var(--rule-2);
+        color: var(--ink-2);
+        background: var(--surface-2);
+      }
+      .badge::before { content: "·"; font-weight: 700; }
+      .badge.passed { color: var(--pass); background: var(--pass-bg); border-color: color-mix(in srgb, var(--pass) 34%, transparent); }
+      .badge.passed::before { content: "✓"; }
+      .badge.flagged { color: var(--danger); background: var(--danger-bg); border-color: color-mix(in srgb, var(--danger) 34%, transparent); }
+      .badge.flagged::before { content: "✕"; }
+      .badge.warn { color: var(--warn); background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 34%, transparent); }
+      .badge.warn::before { content: "!"; }
+      .badge.info { color: var(--ink-2); background: var(--surface-2); }
+      .badge.info::before { content: "·"; }
+
+      .footer {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-top: 1px solid var(--rule);
+      }
+      .meta { font-size: 12px; color: var(--ink-3); }
+
+      .empty { padding: 34px 16px; text-align: center; color: var(--ink-3); }
+      .empty p { font-size: 13px; margin-bottom: 4px; color: var(--ink-2); }
+      .empty .tip { font-size: 12px; color: var(--ink-3); }
+
+      /* ═══ 关键词面板 ═══ */
+      .kw-banner {
+        display: flex; align-items: flex-start; gap: 8px;
+        padding: 11px 14px;
+        margin-bottom: 14px;
+        border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+        border-left: 2px solid var(--warn);
+        border-radius: var(--r);
+        background: var(--warn-bg);
+        color: var(--warn);
+        font-size: 12.5px;
+        line-height: 1.65;
+      }
+      .kw-banner svg { width: 15px; height: 15px; flex: none; margin-top: 2px; }
+      .kw-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+      .kw-errors {
+        padding: 11px 14px;
+        margin-bottom: 14px;
+        border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+        border-left: 2px solid var(--danger);
+        border-radius: var(--r);
+        background: var(--danger-bg);
+        color: var(--danger);
+        font-size: 12.5px;
+        line-height: 1.7;
+      }
+      .kw-rows { display: flex; flex-direction: column; gap: 10px; }
+      .kw-row {
+        display: grid;
+        grid-template-columns: 118px minmax(0, 1fr) auto auto auto;
+        gap: 10px;
+        align-items: start;
+        padding: 12px 14px;
+        background: var(--surface);
+        border: 1px solid var(--rule);
+        border-left: 2px solid var(--rule-2);
+        border-radius: var(--r);
+      }
+      .kw-row.is-pattern { border-left-color: var(--accent); }
+      .kw-row .kw-keywords, .kw-row .kd-keywords { min-width: 0; }
+      .kw-row .kw-pattern, .kw-row .kd-pattern { font-family: var(--mono); font-size: 12.5px; }
+      /* 解析模式决定回复内容如何渲染，两者同排在第二行：
+         解析模式占首列，回复框吃掉剩余列，避免首列后出现大段空白。 */
+      .kw-row .kw-parse-mode { grid-row: 2; grid-column: 1; }
+      .kw-row .kw-reply { grid-row: 2; grid-column: 2 / -1; min-height: 62px; }
+      .kw-row .kw-case, .kw-row .kw-match, .kw-row .kd-match {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 12px; color: var(--ink-2);
+        min-height: var(--ctl);
+        white-space: nowrap;
+      }
+      /* 正则行会隐藏命中条件和大小写两列，若让删除按钮自动流动就会落到 auto 列被拉满整行；
+         固定钉在末列，宽度始终由内容决定。 */
+      .kw-row .kw-del {
+        grid-row: 1;
+        grid-column: 5;
+        justify-self: end;
+        min-height: 30px;
+        padding: 0 9px;
+        color: var(--ink-3);
+      }
+      .kw-row .kw-del:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+      .kw-row .kw-del svg { display: block; width: 13px; height: 13px; }
+      /* 图标按钮：图标与文字基线对齐，图标不参与文本换行 */
+      #kw-add, #kd-add { display: inline-flex; align-items: center; gap: 6px; }
+      #kw-add svg, #kd-add svg { width: 14px; height: 14px; flex: none; }
+      .kw-parse-mode { min-width: 118px; }
+
+      /* ═══ 系统设置 ═══ */
+      .version-card { padding: 16px; }
+      .version-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; font-size: 13px; }
+      .v-label { color: var(--ink-3); font-size: 12px; }
+      .v-value { color: var(--ink); font-weight: 500; }
+      .version-status { font-size: 12.5px; color: var(--ink-2); }
+      .version-status.ok { color: var(--pass); }
+      .version-status.new { color: var(--warn); font-weight: 600; }
+      .version-status.err { color: var(--danger); }
+      .version-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+      .version-actions a {
+        font-size: 12.5px;
+        color: var(--accent);
+        text-decoration: none;
+        border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+      }
+      .version-actions a:hover { border-bottom-color: var(--accent); }
+      .changelog, .update-log {
+        margin: 0;
+        padding: 12px 14px;
+        max-height: 260px;
+        overflow: auto;
+        background: var(--surface-2);
+        border: 1px solid var(--rule);
+        border-radius: var(--r);
+        font-family: var(--mono);
+        font-size: 12px;
+        line-height: 1.7;
+        color: var(--ink-2);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .update-log { margin-top: 14px; }
+
+      .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+      .settings-group { padding: 16px; }
+      .settings-group h3 { font-size: 13.5px; margin-bottom: 4px; }
+      .group-sub { font-size: 12px; color: var(--ink-3); line-height: 1.65; margin-bottom: 14px; }
+      .settings-fields { display: flex; flex-direction: column; gap: 14px; }
+      .setting-item { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+      .setting-label {
+        font-size: 12.5px;
+        color: var(--ink);
+        display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+      }
+      .setting-help { font-size: 11.5px; color: var(--ink-3); line-height: 1.6; }
+      .setting-help.is-warn {
+        display: flex; align-items: flex-start; gap: 5px;
+        color: var(--warn);
+      }
+      .setting-help.is-warn svg { width: 13px; height: 13px; flex: none; margin-top: 2px; }
+      .setting-check { display: flex; align-items: center; gap: 8px; min-height: var(--ctl); }
+      .setting-check input { width: 16px; height: 16px; margin: 0; }
+      .restart-badge {
+        font-size: 10.5px;
+        letter-spacing: 0.06em;
+        padding: 1px 5px;
+        border-radius: 3px;
+        color: var(--warn);
+        background: var(--warn-bg);
+        border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+      }
+      .settings-actions {
+        display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        margin-top: 20px;
+        padding-top: 16px;
+        border-top: 1px solid var(--rule);
+      }
+      .settings-group.is-danger { border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+      .danger-title { font-size: 13.5px; color: var(--danger); margin-bottom: 4px; }
+      .source.is-empty { color: var(--ink-3); }
+
+      /* 校验失败只用 toast 会在 2.8 秒后消失，用户来不及看清是哪一项出错。 */
+      .form-errors {
+        margin-top: 14px;
+        padding: 11px 14px;
+        color: var(--danger);
+        background: var(--danger-bg);
+        border: 1px solid var(--rule);
+        border-left: 2px solid var(--danger);
+        border-radius: var(--r);
+        font-size: 13px;
+        line-height: 1.65;
+      }
+      .form-errors strong { display: block; font-size: 12px; font-weight: 600; }
+      .form-errors ul { margin: 5px 0 0; padding-left: 18px; }
+
+      /* ═══ Toast ═══ */
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 26px;
+        transform: translate(-50%, 12px);
+        z-index: var(--z-toast);
+        max-width: min(440px, calc(100vw - 32px));
+        padding: 10px 16px;
+        border-radius: var(--r);
+        background: var(--ink);
+        color: var(--paper);
+        font-size: 13px;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.22);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms, transform 180ms;
+      }
+      .toast.show { opacity: 1; transform: translate(-50%, 0); }
+      .toast.error { background: var(--danger); color: #fff; }
+
+      /* ═══ 弹窗 ═══ */
       .modal-backdrop {
-        position: fixed; inset: 0;
-        background: rgba(15, 23, 42, 0.45);
-        display: flex; align-items: center; justify-content: center;
-        padding: 16px; z-index: 50;
+        position: fixed;
+        inset: 0;
+        z-index: var(--z-modal);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgb(0 0 0 / 0.42);
       }
       .modal-backdrop[hidden] { display: none; }
       .modal-card {
-        background: #fff; border-radius: 12px;
-        max-width: 560px; width: 100%;
-        max-height: 80vh; overflow-y: auto;
-        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
-        padding: 18px 20px;
+        width: min(680px, 100%);
+        max-height: min(84vh, 760px);
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+        border: 1px solid var(--rule-2);
+        border-radius: var(--r-lg);
+        box-shadow: 0 18px 48px rgb(0 0 0 / 0.3);
+        overflow: hidden;
       }
       .modal-head {
         display: flex; align-items: center; justify-content: space-between;
-        margin-bottom: 12px;
+        gap: 12px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--rule);
+        flex: none;
       }
-      .modal-head h3 { margin: 0; font-size: 16px; }
+      .modal-head h3 { font-size: 14px; }
       .modal-close {
-        width: 28px; height: 28px;
-        display: inline-flex; align-items: center; justify-content: center;
-        border: 0; background: transparent; cursor: pointer;
-        border-radius: 6px; color: var(--color-text-muted);
+        display: grid; place-items: center;
+        width: 30px; min-height: 30px;
+        padding: 0;
+        color: var(--ink-3);
+        border-color: transparent;
+        background: none;
       }
-      .modal-close:hover { background: var(--color-border); color: var(--color-text); }
       .modal-close svg { width: 16px; height: 16px; }
+      .modal-close:hover { color: var(--ink); background: var(--surface-2); border-color: var(--rule-2); }
+      #ad-modal-body { overflow: auto; padding: 16px 18px 18px; }
       .modal-meta {
-        margin: 12px 0 0; padding: 0;
-        display: grid; grid-template-columns: 88px 1fr;
-        gap: 6px 12px;
-        font-size: 13px;
-      }
-      .modal-meta dt { color: var(--color-text-muted); margin: 0; }
-      .modal-meta dd { margin: 0; color: var(--color-text); word-break: break-all; }
-      .modal-msg-title {
-        margin: 14px 0 6px; font-size: 12px;
-        color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;
-      }
-      .modal-msg {
-        margin: 0; padding: 12px; background: #f8fafc;
-        border-radius: 8px; font-size: 13px; line-height: 1.6;
-        white-space: pre-wrap; word-break: break-word;
-        max-height: 320px; overflow-y: auto;
-      }
-
-      /* 最终视觉覆盖：放在所有模块样式之后，避免概览局部规则回退 */
-      .card, .kpi, .chart-card, .overview-row .card, .modal-card {
-        border-color: rgba(219, 234, 254, 0.95);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-card);
-      }
-      .kpi { padding: 18px 20px; }
-      .kpi-value { font-family: var(--font-mono); color: #0f172a; letter-spacing: -0.04em; }
-      .kpi-label { font-weight: 700; color: var(--color-text-muted); }
-      .kpi-sub { color: var(--color-text-muted); line-height: 1.5; }
-      .chart-card { padding: 18px 22px; }
-      .trend { border-top-color: rgba(191, 219, 254, 0.9); }
-      .bars span { border-radius: 999px 999px 4px 4px; }
-      .modal-msg { background: #f8fbff; border: 1px solid rgba(219, 234, 254, 0.9); }
-
-      /* 关键词回复编辑器 */
-      .kw-banner {
-        margin: 0 0 14px; padding: 10px 14px; border-radius: 12px;
-        background: var(--color-warn-bg, #fffbeb); border: 1px solid #fde68a;
-        color: #92400e; font-size: 13px; line-height: 1.6;
-      }
-      .kw-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 14px; }
-      .kw-toolbar .field { display: flex; flex-direction: column; gap: 6px; }
-      .kw-toolbar input[type="number"] { width: 120px; }
-      .kw-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
-      .kw-row {
         display: grid;
-        grid-template-columns: 106px minmax(0, 1fr) 110px 116px 150px 44px;
-        gap: 10px; align-items: center;
-        padding: 12px; border: 1px solid rgba(219, 234, 254, 0.95);
-        border-radius: 14px; background: #fbfdff;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+        padding-bottom: 14px;
+        margin-bottom: 14px;
+        border-bottom: 1px solid var(--rule);
       }
-      .kw-row [hidden] { display: none !important; }
-      .kw-row select, .kw-row input[type="text"] { min-width: 0; width: 100%; }
-      /* 控件钉到固定列:各行的 命中条件/解析模式/删除按钮 纵向对齐 */
-      .kw-row .kw-type, .kw-row .kd-type { grid-column: 1; grid-row: 1; }
-      .kw-row .kw-keywords, .kw-row .kw-pattern,
-      .kw-row .kd-keywords, .kw-row .kd-pattern { grid-column: 2; grid-row: 1; }
-      .kw-row .kw-match, .kw-row .kd-match { grid-column: 3; grid-row: 1; }
-      .kw-row .kw-case { grid-column: 4; grid-row: 1; }
-      /* 解析模式钉列:关键词模式在第 5 列;正则模式(.is-pattern)与"任一命中"同列(第 3 列) */
-      .kw-row .kw-parse-mode { grid-column: 5; grid-row: 1; }
-      .kw-row.is-pattern .kw-parse-mode { grid-column: 3; }
-      .kw-row .kw-del { grid-column: 6; grid-row: 1; }
-      .kw-row textarea {
-        grid-column: 1 / -1; grid-row: 2; min-height: 58px; resize: vertical;
-        font-family: inherit; font-size: 13px; line-height: 1.6;
-      }
-      .kw-row .kw-del { justify-self: end; }
-      .kw-row .kw-case { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--color-text-muted); white-space: nowrap; }
-      .kw-errors { margin: 0 0 14px; padding: 10px 14px; border-radius: 12px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: 13px; line-height: 1.7; }
-      .kw-errors ul { margin: 4px 0 0; padding-left: 18px; }
-      @media (max-width: 720px) {
-        .kw-row { grid-template-columns: 1fr; }
-        .kw-row > * { grid-column: auto !important; grid-row: auto !important; }
-        .kw-row textarea { grid-column: auto; }
-      }
-
-      /* ===== 系统设置页 ===== */
-      .settings-grid { display: grid; gap: 16px; }
-      .settings-group { padding: 16px 18px; }
-      .settings-group h3 { margin: 0 0 4px; font-size: 15px; }
-      .settings-group .group-sub { margin: 0 0 14px; font-size: 12px; color: var(--color-text-muted); }
-      .settings-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px 20px; }
-      .setting-item { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
-      .setting-item .setting-label { display: flex; align-items: center; gap: 6px; font-weight: 500; }
-      .setting-item .setting-help { font-size: 12px; color: var(--color-text-muted); line-height: 1.5; }
-      .setting-item input[type="text"], .setting-item input[type="number"], .setting-item input[type="password"], .setting-item select {
-        width: 100%; min-width: 0;
-      }
-      .setting-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--color-primary); }
-      .setting-check { flex-direction: row !important; align-items: center; gap: 8px !important; padding-top: 18px; }
-      .restart-badge {
-        font-size: 11px; padding: 1px 7px; border-radius: 999px;
-        background: var(--color-warn-bg); color: var(--color-warn); border: 1px solid #fde68a;
-        white-space: nowrap;
-      }
-      .settings-actions {
-        display: flex; align-items: center; gap: 12px; margin-top: 4px;
-        position: sticky; bottom: 0; padding: 12px 0;
-        background: linear-gradient(to top, var(--color-bg) 70%, transparent);
-      }
-      .settings-actions .meta { color: var(--color-text-muted); font-size: 12px; }
-
-      /* 版本卡片 */
-      .version-card { padding: 16px 18px; display: grid; gap: 12px; }
-      .version-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; font-size: 13px; }
-      .version-row .v-label { color: var(--color-text-muted); }
-      .version-row .v-value { font-weight: 600; font-variant-numeric: tabular-nums; font-family: "Fira Code", ui-monospace, monospace; }
-      .version-status { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--color-border); }
-      .version-status.ok { background: var(--color-success-bg); color: var(--color-success); border-color: #a7f3d0; }
-      .version-status.new { background: var(--color-warn-bg); color: var(--color-warn); border-color: #fde68a; }
-      .version-status.err { background: var(--color-destructive-bg); color: var(--color-destructive); border-color: #fecaca; }
-      .changelog {
-        margin: 0; padding: 12px 14px; border-radius: 10px; max-height: 260px; overflow: auto;
-        background: #f8fbff; border: 1px solid rgba(219, 234, 254, 0.9);
-        font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
-        font-family: inherit;
-      }
-      .update-log {
-        margin: 0; padding: 12px 14px; border-radius: 10px; max-height: 220px; overflow: auto;
-        background: #0f172a; color: #e2e8f0; font-size: 12px; line-height: 1.6;
-        font-family: "Fira Code", ui-monospace, monospace; white-space: pre-wrap; word-break: break-all;
-      }
-      .version-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-      button.danger { background: var(--color-destructive); border-color: var(--color-destructive); color: #fff; }
-      button.danger:hover:not(:disabled) { background: var(--color-destructive-hover); }
-      button.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
-      button.primary:hover:not(:disabled) { background: var(--color-primary-hover); }
-
-      .leave-guard { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-muted); cursor: pointer; user-select: none; }
-      .leave-guard input { width: 14px; height: 14px; accent-color: var(--color-primary); }
-      .version-badge {
-        font-size: 11px; padding: 2px 8px; border-radius: 999px;
-        background: var(--color-muted-bg); color: var(--color-primary);
-        font-family: "Fira Code", ui-monospace, monospace;
+      .meta-line { font-size: 12px; color: var(--ink-2); }
+      .meta-line strong { display: block; font-family: var(--sans); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; margin-bottom: 3px; }
+      .modal-msg-title { font-size: 10.5px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 7px; }
+      .modal-msg {
+        padding: 12px 14px;
+        background: var(--surface-2);
+        border: 1px solid var(--rule);
+        border-radius: var(--r);
+        font-size: 13px;
+        line-height: 1.75;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 300px;
+        overflow: auto;
       }
       .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+
+      /* ═══ 响应式 ═══ */
+      @media (max-width: 1100px) {
+        .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .kpi:nth-child(3) { border-left: 0; padding-left: 0; }
+        .kpi:nth-child(n + 3) { border-top: 1px solid var(--rule); }
+      }
+      @media (max-width: 900px) {
+        .layout { grid-template-columns: minmax(0, 1fr); }
+        .header { padding: 0 14px; gap: 12px; }
+        .brand .sub, .who { display: none; }
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid var(--rule);
+          flex-direction: row;
+          gap: 0;
+          padding: 0;
+          overflow-x: auto;
+          scrollbar-width: none;
+          position: sticky;
+          top: var(--hdr);
+          z-index: var(--z-sticky);
+        }
+        .sidebar::-webkit-scrollbar { display: none; }
+        .nav-item { min-height: 46px; padding: 0 14px; white-space: nowrap; }
+        .nav-item.active { background: none; }
+        .nav-item.active::before { top: auto; bottom: 0; left: 10px; right: 10px; width: auto; height: 2px; }
+        .footnote { display: none; }
+        .main { padding: 18px 14px 48px; }
+        .panel-head { align-items: flex-start; }
+        thead th { top: 0; }
+      }
+      @media (max-width: 640px) {
+        .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .kpi { padding: 13px 12px 15px; }
+        .kpi-value { font-size: 23px; }
+        .filters { gap: 10px; }
+        .filters > * { flex: 1 1 auto; }
+        .segmented { width: 100%; }
+        .segmented label { flex: 1; justify-content: center; }
+        .kw-row { grid-template-columns: minmax(0, 1fr); }
+        .kw-row .kw-parse-mode,
+        .kw-row .kw-reply,
+        .kw-row .kw-del { grid-row: auto; grid-column: auto; }
+        .modal-backdrop { padding: 0; align-items: flex-end; }
+        .modal-card { max-height: 92vh; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+        /* 表格改为横向滚动而非强制最小宽度，避免小屏必然溢出 */
+        .table-wrap { -webkit-overflow-scrolling: touch; }
+        .col-msg { min-width: 200px; }
+        .header-right { gap: 10px; }
+        .version-badge { display: none; }
+      }
+      /* 移动端输入框 ≥16px，防 iOS 聚焦时自动缩放 */
+      @media (max-width: 640px) {
+        input[type="text"], input[type="number"], input[type="password"], select, textarea {
+          font-size: 16px;
+        }
+      }
+      /* 触控设备把点击目标抬到 44px；桌面保持台账密度 */
+      @media (pointer: coarse) {
+        button, .combobox, input[type="text"], input[type="number"], select {
+          min-height: 44px;
+        }
+        .segmented label { min-height: var(--tap); }
+        /* 触屏精度低，宁可牺牲行密度也要给复制按钮完整 44px；
+           拉开 gap 是为了让 44px 的点击区不越界到上方的用户名链接。 */
+        .user-cell { gap: 12px; }
+        .copy-btn::after { height: var(--tap); }
+        .modal-close { width: 44px; min-height: 44px; }
+        /* 删除按钮只有图标，不给 min-width 的话高度够了宽度仍只有 33px。 */
+        .kw-row .kw-del { min-height: var(--tap); min-width: var(--tap); }
+        .nav-item { min-height: 44px; }
+        /* 这三处的 .kw-row 后代选择器优先级高于上面的 button/select，
+           不在同等优先级上覆盖就仍是 34px。 */
+        .kw-row .kw-case, .kw-row .kw-match, .kw-row .kd-match { min-height: var(--tap); }
+        .leave-guard { min-height: var(--tap); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          scroll-behavior: auto !important;
+        }
+      }
     </style>
   </head>
   <body>
@@ -978,38 +984,36 @@
 
       <nav class="sidebar">
         <div class="nav-item active" data-target="overview" role="button" tabindex="0">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
           统计概览
         </div>
         <div class="nav-item" data-target="joins" role="button" tabindex="0">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/></svg>
           进群日志
           <span class="count" id="joins-count">0</span>
         </div>
         <div class="nav-item" data-target="ads" role="button" tabindex="0">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-6"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-6"/></svg>
           广告判断日志
           <span class="count" id="ads-count">0</span>
         </div>
         <div class="nav-item" data-target="bans" role="button" tabindex="0">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg>
           封禁日志
           <span class="count" id="bans-count">0</span>
         </div>
         <div class="nav-item" data-target="keywords" role="button" tabindex="0">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           关键词回复
         </div>
         <div class="nav-item" data-target="keyword-deletions" role="button" tabindex="0">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
           关键词删除
         </div>
         <div class="nav-item" data-target="settings" role="button" tabindex="0">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           系统设置
-          <span class="count" id="settings-update-count" hidden>!</span>
-        </div>
-        <div class="footnote">
+          <span class="count" id="settings-update-count" aria-label="有可用更新" hidden>!</span>
         </div>
         <div class="footnote">
           管理范围：<br />{{ chats | join(', ') }}
@@ -1048,9 +1052,9 @@
             <div class="card-head">
               <h3>近 7 天趋势</h3>
               <div class="legend">
-                <span><i style="background:var(--color-primary)"></i>进群</span>
-                <span><i style="background:var(--color-success)"></i>通过</span>
-                <span><i style="background:var(--color-destructive)"></i>封禁</span>
+                <span><i class="bar-join"></i>进群</span>
+                <span><i class="bar-pass"></i>通过</span>
+                <span><i class="bar-ban"></i>封禁</span>
               </div>
             </div>
             <div class="trend" id="trend-chart" aria-label="近 7 天趋势条形图"></div>
@@ -1070,7 +1074,7 @@
             </div>
             <div class="card">
               <div class="card-head"><h3>24 小时进群分布</h3></div>
-              <div class="heatmap" id="hourly-heatmap" aria-label="24 小时进群热力"></div>
+              <div class="heatmap" id="hourly-heatmap" aria-label="24 小时进群分布条形图"></div>
               <div class="heat-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
             </div>
             <div class="card">
@@ -1211,7 +1215,7 @@
                     <th>用户</th>
                     <th>来源</th>
                     <th>判定</th>
-                    <th>消息</th>
+                    <th class="col-msg">消息</th>
                   </tr>
                 </thead>
                 <tbody id="ads-body"></tbody>
@@ -1309,10 +1313,12 @@
             </div>
           </div>
           <div class="kw-banner" id="kw-disabled-banner" hidden>
-            ⚠️ 关键词回复当前未启用（KEYWORD_REPLY_ENABLED=false），保存的规则不会生效；如需启用请修改 .env 并重启。
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span>关键词回复当前未启用（KEYWORD_REPLY_ENABLED=false），保存的规则不会生效；如需启用请修改 .env 并重启。</span>
           </div>
           <div class="kw-banner" id="kw-readonly-banner" hidden>
-            ⚠️ 未配置规则文件路径（KEYWORD_REPLY_RULES_FILE），当前为只读模式，无法保存。
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span>未配置规则文件路径（KEYWORD_REPLY_RULES_FILE），当前为只读模式，无法保存。</span>
           </div>
           <div class="kw-toolbar">
             <label class="field">
@@ -1321,7 +1327,7 @@
             </label>
             <span class="meta" id="kw-cooldown-hint"></span>
             <span style="flex:1"></span>
-            <button type="button" class="secondary" id="kw-add">＋ 添加规则</button>
+            <button type="button" class="secondary" id="kw-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>添加规则</span></button>
             <button type="button" id="kw-save">保存全部规则</button>
           </div>
           <div class="kw-errors" id="kw-errors" hidden></div>
@@ -1339,14 +1345,16 @@
             </div>
           </div>
           <div class="kw-banner" id="kd-disabled-banner" hidden>
-            ⚠️ 关键词删除当前未启用（KEYWORD_DELETION_ENABLED=false），保存的规则不会生效；如需启用请修改 .env 并重启。
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span>关键词删除当前未启用（KEYWORD_DELETION_ENABLED=false），保存的规则不会生效；如需启用请修改 .env 并重启。</span>
           </div>
           <div class="kw-banner" id="kd-readonly-banner" hidden>
-            ⚠️ 未配置规则文件路径（KEYWORD_DELETION_RULES_FILE），当前为只读模式，无法保存。
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span>未配置规则文件路径（KEYWORD_DELETION_RULES_FILE），当前为只读模式，无法保存。</span>
           </div>
           <div class="kw-toolbar">
             <span style="flex:1"></span>
-            <button type="button" class="secondary" id="kd-add">＋ 添加规则</button>
+            <button type="button" class="secondary" id="kd-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>添加规则</span></button>
             <button type="button" id="kd-save">保存全部规则</button>
           </div>
           <div class="kw-errors" id="kd-errors" hidden></div>
@@ -1404,20 +1412,22 @@
               <span class="meta" id="cs-meta"></span>
             </div>
             <div class="settings-fields" id="cs-fields"><div class="empty"><p>请先选择要配置的群。</p></div></div>
+            <div class="form-errors" id="cs-errors" role="alert" hidden></div>
             <div class="version-actions" style="margin-top:14px;">
               <button type="button" class="primary" id="cs-save" disabled>保存该群配置</button>
               <span class="meta">留空 / 选「跟随全局」即清除该项覆盖</span>
             </div>
           </div>
 
-          <div class="card settings-group" style="margin-top:16px; border-color:#fecaca;">
-            <h3 style="color:var(--color-destructive);">危险操作</h3>
+          <div class="card settings-group is-danger" style="margin-top:16px;">
+            <h3 class="danger-title">危险操作</h3>
             <p class="group-sub">关停后整个机器人与后台都会停止运行，只能到服务器上手动启动；若使用 systemd/pm2 守护，进程可能被自动拉起。</p>
             <div class="version-actions">
               <button type="button" class="danger" id="shutdown-btn">关停服务</button>
             </div>
           </div>
 
+          <div class="form-errors" id="settings-errors" role="alert" hidden></div>
           <div class="settings-actions">
             <button type="button" class="primary" id="settings-save">保存设置</button>
             <button type="button" class="secondary" id="settings-reload">重新加载</button>
@@ -1467,6 +1477,11 @@
       let joinsOffset = 0;
       let adsOffset = 0;
       let bansOffset = 0;
+      // 每张日志表一个请求序号。改筛选条件或连点"加载更多"会并发多个请求，
+      // 先发的可能后回；响应回来时序号已变就直接丢弃，否则会把过期结果写进当前视图。
+      const reqSeq = { joins: 0, ads: 0, bans: 0, ov: 0 };
+      // 累积所有已加载的广告记录，弹窗按 id 查；只靠当批数据会让翻页后的旧行失效。
+      const adsItems = new Map();
 
       function fmtChatLabel(chatId) {
         return chatId == null || chatId === '' ? '全部群' : `群 ${chatId}`;
@@ -1478,10 +1493,13 @@
         const valueEl = btn.querySelector('.value');
         let activeIdx = -1;
 
+        // 读屏软件靠 aria-controls 找到弹出的列表，靠 aria-activedescendant 播报
+        // 上下键移到了哪一项；缺这两项时键盘能选中但听不到选了什么。
+        btn.setAttribute('aria-controls', listId);
         list.innerHTML = options.map((opt, i) => `
-          <li role="option" data-value="${opt.value}" data-index="${i}" aria-selected="${opt.value === btn.dataset.value ? 'true' : 'false'}">
+          <li role="option" id="${listId}-opt-${i}" data-value="${esc(opt.value)}" data-index="${i}" aria-selected="${opt.value === btn.dataset.value ? 'true' : 'false'}">
             <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-            <span>${opt.label}</span>
+            <span>${esc(opt.label)}</span>
           </li>
         `).join('');
 
@@ -1494,20 +1512,26 @@
           setActive(selectedIdx >= 0 ? selectedIdx : 0);
           document.addEventListener('mousedown', onOutside, true);
           document.addEventListener('keydown', onKeydown, true);
+          document.addEventListener('focusin', onFocusIn, true);
         };
-        const close = () => {
+        // Tab 移开时如果不关掉列表，document 上的 keydown 监听会一直挂着，
+        // 之后在别的控件上按 Enter 会被它吃掉，变成改选下拉项。
+        const close = (refocus = true) => {
           list.hidden = true;
           btn.setAttribute('aria-expanded', 'false');
           activeIdx = -1;
+          btn.removeAttribute('aria-activedescendant');
           items.forEach((li) => li.classList.remove('is-active'));
           document.removeEventListener('mousedown', onOutside, true);
           document.removeEventListener('keydown', onKeydown, true);
-          btn.focus();
+          document.removeEventListener('focusin', onFocusIn, true);
+          if (refocus) btn.focus();
         };
         const toggle = () => (list.hidden ? open() : close());
         const setActive = (idx) => {
           if (idx < 0 || idx >= items.length) return;
           activeIdx = idx;
+          btn.setAttribute('aria-activedescendant', items[idx].id);
           items.forEach((li, i) => li.classList.toggle('is-active', i === idx));
           items[idx].scrollIntoView({ block: 'nearest' });
         };
@@ -1525,13 +1549,23 @@
         const onOutside = (e) => {
           if (!btn.contains(e.target) && !list.contains(e.target)) close();
         };
+        const onFocusIn = (e) => {
+          if (!btn.contains(e.target) && !list.contains(e.target)) close(false);
+        };
+        // 这个监听挂在 document 的捕获阶段，比按钮自己的 keydown 先跑。
+        // 不 stopPropagation 的话：Enter 选中后 close() 把列表藏起来，
+        // 同一个事件接着传到按钮，按钮看见列表已关又立刻重新打开。
         const onKeydown = (e) => {
-          if (e.key === 'Escape') { e.preventDefault(); close(); return; }
-          if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIdx + 1, items.length - 1)); return; }
-          if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); return; }
-          if (e.key === 'Home') { e.preventDefault(); setActive(0); return; }
-          if (e.key === 'End') { e.preventDefault(); setActive(items.length - 1); return; }
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(activeIdx); return; }
+          const handled = ['Escape', 'ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' '];
+          if (!handled.includes(e.key)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.key === 'Escape') close();
+          else if (e.key === 'ArrowDown') setActive(Math.min(activeIdx + 1, items.length - 1));
+          else if (e.key === 'ArrowUp') setActive(Math.max(activeIdx - 1, 0));
+          else if (e.key === 'Home') setActive(0);
+          else if (e.key === 'End') setActive(items.length - 1);
+          else choose(activeIdx);
         };
 
         btn.addEventListener('click', (e) => { e.preventDefault(); toggle(); });
@@ -1640,21 +1674,39 @@
         });
       }
 
+      // 必须把整屏清空：只重置一张卡会让另外三张继续显示上一个群的数字。
+      function clearOverview(note) {
+        ['kpi-joined', 'kpi-pass', 'kpi-bans', 'kpi-ads'].forEach((id) => {
+          document.getElementById(id).textContent = '—';
+          document.getElementById(id + '-sub').textContent = '—';
+        });
+        document.getElementById('trend-chart').innerHTML = `<div class="empty" style="grid-column:1/-1"><p>${note}</p></div>`;
+        document.getElementById('per-chat-body').innerHTML = `<tr><td colspan="4"><div class="empty"><p>${note}</p></div></td></tr>`;
+        document.getElementById('hourly-heatmap').innerHTML = '';
+        document.getElementById('top-sources').innerHTML = `<li><span class="source is-empty">${note}</span></li>`;
+      }
+
       async function loadOverview() {
         const chat = getChatValue('ov-chat-btn');
+        const seq = ++reqSeq.ov;
         const params = new URLSearchParams();
         if (chat) params.set('chat_id', chat);
         let data;
         try {
           const res = await fetch(`/admin/api/metrics?${params}`);
           if (res.status === 401) { location.href = '/admin/login'; return; }
+          if (!res.ok) throw new Error('概览加载失败');
           data = await res.json();
         } catch (err) {
-          showToast('概览加载失败', true); return;
+          if (seq !== reqSeq.ov) return;
+          // 不清空的话，筛选器显示新群、KPI 还是上一个群的数字，看不出这是旧数据。
+          clearOverview('加载失败，请检查网络后重试');
+          showToast('概览加载失败', true);
+          return;
         }
+        if (seq !== reqSeq.ov) return;
         if (data.empty) {
-          document.getElementById('kpi-joined').textContent = '—';
-          document.getElementById('trend-chart').innerHTML = '<div class="empty" style="grid-column:1/-1"><p>暂无可用统计数据</p></div>';
+          clearOverview('暂无可用统计数据');
           return;
         }
         const today = data.today;
@@ -1701,7 +1753,7 @@
         } else {
           perBody.innerHTML = perChat.map((r) => `
             <tr>
-              <td><div>群</div><div class="sub">${r.chat_id}</div></td>
+              <td><span class="mono">${r.chat_id}</span></td>
               <td>${r.joined}</td>
               <td>${r.verified}</td>
               <td>${pct(r.pass_rate)}</td>
@@ -1711,20 +1763,20 @@
         const hours = data.hourly || [];
         const maxHour = Math.max(1, ...hours);
         document.getElementById('hourly-heatmap').innerHTML = hours.map((n, h) => {
-          const alpha = (n / maxHour);
-          const bg = `rgba(37, 99, 235, ${0.08 + alpha * 0.72})`;
-          return `<span style="background:${bg}" title="${String(h).padStart(2, '0')}:00 · ${n} 人"></span>`;
+          const v = Math.round((n / maxHour) * 100);
+          return `<span style="--v:${v}" title="${String(h).padStart(2, '0')}:00 · ${n} 人"></span>`;
         }).join('');
 
         const top = data.top_sources || [];
         const topEl = document.getElementById('top-sources');
         topEl.innerHTML = top.length === 0
-          ? '<li><span class="source" style="color:var(--color-text-muted)">最近 7 天无广告拦截记录</span></li>'
+          ? '<li><span class="source is-empty">最近 7 天无广告拦截记录</span></li>'
           : top.map((s) => `<li><span class="source">${esc(s.source)}</span><span class="count">${s.count}</span></li>`).join('');
       }
 
       async function loadJoins(reset = true) {
         if (reset) joinsOffset = 0;
+        const seq = ++reqSeq.joins;
         const params = new URLSearchParams({ limit: 50, offset: String(joinsOffset) });
         const chat = getChatValue('joins-chat-btn');
         const event = document.querySelector('input[name="joins-event"]:checked').value;
@@ -1742,15 +1794,31 @@
           params.set('user_id', user);
         }
 
+        // 重置请求还没回来就点"加载更多"，第二个请求会把序号顶掉，重置响应被丢弃、
+        // 表格不清空，新一页于是追加在上一个筛选的行后面，两个群的记录混在一张表里。
+        const moreBtn = document.getElementById('joins-more');
+        moreBtn.disabled = true;
         let data;
         try {
           const res = await fetch(`/admin/api/joins?${params}`);
           if (res.status === 401) { location.href = '/admin/login'; return; }
+          if (!res.ok) throw new Error('加载失败');
           data = await res.json();
         } catch (err) {
+          if (seq !== reqSeq.joins) return;
+          moreBtn.disabled = false;
+          // 失败后留着上一次筛选的行，筛选条显示新群、行还是旧群的记录，
+          // 照着旧行操作就会作用到错误的群。
+          if (reset) {
+            document.getElementById('joins-body').innerHTML = '';
+            emptyRow('joins-body', 5, '加载失败', '请检查网络后重试。');
+            document.getElementById('joins-meta').textContent = '加载失败';
+          }
           showToast('加载失败，请重试', true);
           return;
         }
+        if (seq !== reqSeq.joins) return;
+        moreBtn.disabled = false;
         const body = document.getElementById('joins-body');
         if (reset) body.innerHTML = '';
 
@@ -1782,6 +1850,7 @@
 
       async function loadAds(reset = true) {
         if (reset) adsOffset = 0;
+        const seq = ++reqSeq.ads;
         const params = new URLSearchParams({ limit: 50, offset: String(adsOffset) });
         const chat = getChatValue('ads-chat-btn');
         const flagged = document.querySelector('input[name="ads-flagged"]:checked').value;
@@ -1799,17 +1868,31 @@
           params.set('user_id', user);
         }
 
+        const moreBtn = document.getElementById('ads-more');
+        moreBtn.disabled = true;
         let data;
         try {
           const res = await fetch(`/admin/api/ad_decisions?${params}`);
           if (res.status === 401) { location.href = '/admin/login'; return; }
+          if (!res.ok) throw new Error('加载失败');
           data = await res.json();
         } catch (err) {
+          if (seq !== reqSeq.ads) return;
+          moreBtn.disabled = false;
+          if (reset) {
+            document.getElementById('ads-body').innerHTML = '';
+            adsItems.clear();
+            emptyRow('ads-body', 6, '加载失败', '请检查网络后重试。');
+            document.getElementById('ads-meta').textContent = '加载失败';
+          }
           showToast('加载失败，请重试', true);
           return;
         }
+        if (seq !== reqSeq.ads) return;
+        moreBtn.disabled = false;
         const body = document.getElementById('ads-body');
-        if (reset) body.innerHTML = '';
+        if (reset) { body.innerHTML = ''; adsItems.clear(); }
+        data.items.forEach((it) => adsItems.set(it.id, it));
 
         if (reset && data.items.length === 0) {
           emptyRow('ads-body', 6, '暂无广告判断日志', '当机器人检测到广告时会写入记录。');
@@ -1843,13 +1926,20 @@
                   <div>${flaggedBadge} ${finalLabel}</div>
                   ${vote}
                 </td>
-                <td><div class="preview" title="点击查看全文">${esc(item.message_text) || '-'}</div></td>
+                <td class="col-msg"><div class="preview" title="点击查看全文">${esc(item.message_text) || '-'}</div></td>
               </tr>`;
           }).join(''));
-          body.querySelectorAll('tr[data-ad-id]').forEach((tr) => {
-            const open = () => openAdModal(Number(tr.dataset.adId), data.items);
-            tr.addEventListener('click', open);
-            tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); open(); } });
+          // 只绑新插入的行：重复绑定会让"加载更多"之后的点击触发多次，
+          // 而闭包捕获当批 items 会让旧行查不到自己的记录、点了没反应。
+          body.querySelectorAll('tr[data-ad-id]:not([data-bound])').forEach((tr) => {
+            tr.dataset.bound = '1';
+            const open = () => openAdModal(Number(tr.dataset.adId));
+            // 行里还有用户名链接和复制 ID 按钮，点它们时不该顺带把详情弹出来。
+            tr.addEventListener('click', (e) => { if (!e.target.closest('a, button')) open(); });
+            tr.addEventListener('keydown', (e) => {
+              if (e.target !== tr) return;
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+            });
           });
           bindCopyButtons(body);
         }
@@ -1858,8 +1948,18 @@
         document.getElementById('ads-meta').textContent = `已加载 ${reset ? data.items.length : adsOffset} 条`;
       }
 
-      function openAdModal(adId, items) {
-        const item = items.find((i) => i.id === adId);
+      // 关掉弹窗后焦点若不还给触发它的那一行，键盘用户会被丢回 body，得从头 Tab 一遍。
+      let modalReturnFocus = null;
+      function restoreModalFocus() {
+        // 弹窗开着的时候表格可能已经刷新过，触发它的那一行不在了；
+        // 没有兜底焦点会掉回 body，键盘用户得从头 Tab 一遍。
+        if (modalReturnFocus && document.contains(modalReturnFocus)) modalReturnFocus.focus();
+        else document.querySelector('.nav-item.active').focus();
+        modalReturnFocus = null;
+      }
+
+      function openAdModal(adId) {
+        const item = adsItems.get(adId);
         if (!item) return;
         const modal = document.getElementById('ad-modal');
         const body = document.getElementById('ad-modal-body');
@@ -1882,6 +1982,9 @@
           </dl>
           <div class="modal-msg-title">消息全文</div>
           <pre class="modal-msg">${esc(item.message_text) || '(空)'}</pre>`;
+        // renderUser 里带了复制 ID 按钮，不绑事件的话点了没反应。
+        bindCopyButtons(body);
+        modalReturnFocus = document.activeElement;
         modal.hidden = false;
         modal.focus();
       }
@@ -1889,6 +1992,7 @@
         const modal = document.getElementById('ad-modal');
         modal.hidden = true;
         document.getElementById('ad-modal-body').innerHTML = '';
+        restoreModalFocus();
       }
 
       function getCookie(name) {
@@ -1900,11 +2004,18 @@
         event.preventDefault();
         leaveGuardBypass = true;
         try {
-          await fetch('/admin/logout', {
+          const res = await fetch('/admin/logout', {
             method: 'POST',
             headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
           });
-        } catch (e) {}
+          if (!res.ok) throw new Error('退出失败');
+        } catch (err) {
+          // 退出失败还跳登录页，会让人以为已经登出，实际会话仍然有效——
+          // 在公用电脑上这是安全问题，所以必须留在原地并说清楚。
+          leaveGuardBypass = false;
+          showToast('退出登录失败，会话仍然有效，请重试', true);
+          return false;
+        }
         location.href = '/admin/login';
         return false;
       }
@@ -1943,6 +2054,7 @@
 
       async function loadBans(reset = true) {
         if (reset) bansOffset = 0;
+        const seq = ++reqSeq.bans;
         const params = new URLSearchParams({ limit: 50, offset: String(bansOffset) });
         const chat = getChatValue('bans-chat-btn');
         const active = document.querySelector('input[name="bans-active"]:checked').value;
@@ -1960,15 +2072,28 @@
           params.set('user_id', user);
         }
 
+        const moreBtn = document.getElementById('bans-more');
+        moreBtn.disabled = true;
         let data;
         try {
           const res = await fetch(`/admin/api/bans?${params}`);
           if (res.status === 401) { location.href = '/admin/login'; return; }
+          if (!res.ok) throw new Error('加载失败');
           data = await res.json();
         } catch (err) {
+          if (seq !== reqSeq.bans) return;
+          moreBtn.disabled = false;
+          // 封禁页最怕这个：留着旧群的行，点解封会真的解封另一个群的用户。
+          if (reset) {
+            document.getElementById('bans-body').innerHTML = '';
+            emptyRow('bans-body', 6, '加载失败', '请检查网络后重试。');
+            document.getElementById('bans-meta').textContent = '加载失败';
+          }
           showToast('加载失败，请重试', true);
           return;
         }
+        if (seq !== reqSeq.bans) return;
+        moreBtn.disabled = false;
         const body = document.getElementById('bans-body');
         if (reset) body.innerHTML = '';
 
@@ -1995,10 +2120,11 @@
                 <td>${renderUser(item.user_id, item.display_name)}</td>
                 <td><div><span class="badge info">${esc(reasonLabel)}</span></div><div class="sub">${esc(item.operator_name || 'system')}</div></td>
                 <td>${statusBadge}</td>
-                <td class="row-actions">${action}</td>
+                <td><div class="row-actions">${action}</div></td>
               </tr>`;
           }).join(''));
-          body.querySelectorAll('button.danger[data-chat]').forEach((btn) => {
+          body.querySelectorAll('button.danger[data-chat]:not([data-bound])').forEach((btn) => {
+            btn.dataset.bound = '1';
             btn.addEventListener('click', () => unbanRow(
               Number(btn.dataset.chat), Number(btn.dataset.user), btn.dataset.name, btn
             ));
@@ -2013,6 +2139,29 @@
       // ===== 关键词回复编辑器 =====
       let kwWritable = true;
 
+      // ===== 未保存改动追踪 =====
+      // 刷新和切群都是整块重建编辑器 DOM，不先确认就会无声冲掉正在输入的内容。
+      // 用序列化快照比对，省得给每个动态生成的控件都挂监听。
+      const formSnapshot = {
+        kw: () => JSON.stringify({
+          rules: Array.from(document.querySelectorAll('#kw-rows .kw-row')).map(kwRuleFromDom),
+          cooldown: document.getElementById('kw-cooldown').value.trim(),
+        }),
+        kd: () => JSON.stringify(
+          Array.from(document.querySelectorAll('#kd-rows .kw-row')).map(kdRuleFromDom)),
+        settings: () => JSON.stringify(Array.from(document.querySelectorAll('#settings-groups [data-key]'))
+          .map((el) => [el.dataset.key, el.type === 'checkbox' ? el.checked : el.value])),
+        cs: () => JSON.stringify(Array.from(document.querySelectorAll('#cs-fields [data-cs-key]'))
+          .map((el) => [el.dataset.csKey, el.value])),
+      };
+      const formClean = {};
+      function markFormClean(key) { formClean[key] = formSnapshot[key](); }
+      // 没成功加载过就没有比对基线，这时候不该拦人。
+      function confirmDiscard(key, what) {
+        if (formClean[key] === undefined || formClean[key] === formSnapshot[key]()) return true;
+        return confirm(`${what}有未保存的改动，继续将丢弃这些改动。\n\n确定要继续吗？`);
+      }
+
       function kwRowHtml(rule) {
         const isPattern = typeof rule.pattern === 'string' && rule.pattern.length > 0;
         const keywords = Array.isArray(rule.keywords) ? rule.keywords.join('，') : '';
@@ -2022,9 +2171,9 @@
               <option value="keywords"${isPattern ? '' : ' selected'}>关键词</option>
               <option value="pattern"${isPattern ? ' selected' : ''}>正则</option>
             </select>
-            <input type="text" class="kw-keywords" placeholder="多个关键词用逗号分隔"
+            <input type="text" class="kw-keywords" placeholder="多个关键词用逗号分隔" aria-label="触发关键词"
               value="${esc(keywords)}" ${isPattern ? 'hidden' : ''} />
-            <input type="text" class="kw-pattern" placeholder="正则表达式，如 (?i)(怎么|如何)加入"
+            <input type="text" class="kw-pattern" placeholder="正则表达式，如 (?i)(怎么|如何)加入" aria-label="触发正则表达式"
               value="${esc(isPattern ? rule.pattern : '')}" ${isPattern ? '' : 'hidden'} />
             <select class="kw-match" aria-label="命中条件" ${isPattern ? 'hidden' : ''}>
               <option value="any"${rule.match === 'all' ? '' : ' selected'}>任一命中</option>
@@ -2038,8 +2187,8 @@
               <option value="HTML"${rule.parse_mode === 'HTML' ? ' selected' : ''}>HTML</option>
               <option value="MarkdownV2"${rule.parse_mode === 'MarkdownV2' ? ' selected' : ''}>MarkdownV2</option>
             </select>
-            <button type="button" class="secondary kw-del" title="删除此规则">✕</button>
-            <textarea class="kw-reply" placeholder="回复内容（支持 HTML / MarkdownV2）">${esc(rule.reply || '')}</textarea>
+            <button type="button" class="secondary kw-del" title="删除此规则" aria-label="删除此规则"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            <textarea class="kw-reply" placeholder="回复内容（支持 HTML / MarkdownV2）" aria-label="自动回复内容">${esc(rule.reply || '')}</textarea>
           </div>`;
       }
 
@@ -2067,36 +2216,56 @@
         return rule;
       }
 
+      // 保存和刷新不互斥的话：刷新会把正在保存的内容冲掉，或者保存发出去之后
+      // 刷新的响应又把编辑器改回服务端旧值，看不出到底存进去了什么。
+      // kwReady：首次加载成功前编辑区是空的，此时保存会把整份规则文件清成空数组。
+      let kwBusy = false;
+      let kwReady = false;
+      function setKwBusy(busy) {
+        kwBusy = busy;
+        document.getElementById('kw-refresh').disabled = busy;
+        document.getElementById('kw-add').disabled = busy || !kwReady;
+        document.getElementById('kw-save').disabled = busy || !kwReady || !kwWritable;
+      }
+
       async function loadKeywordRules() {
-        let data;
+        if (kwBusy) return;
+        setKwBusy(true);
         try {
-          const res = await fetch('/admin/api/keyword_rules');
-          if (res.status === 401) { location.href = '/admin/login'; return; }
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || '加载失败');
+          let data;
+          try {
+            const res = await fetch('/admin/api/keyword_rules');
+            if (res.status === 401) { location.href = '/admin/login'; return; }
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.detail || '加载失败');
+            }
+            data = await res.json();
+          } catch (err) {
+            showToast(err.message || '关键词规则加载失败', true);
+            return;
           }
-          data = await res.json();
-        } catch (err) {
-          showToast(err.message || '关键词规则加载失败', true);
-          return;
+          kwWritable = !!data.writable;
+          document.getElementById('kw-disabled-banner').hidden = !!data.enabled;
+          document.getElementById('kw-readonly-banner').hidden = kwWritable;
+          const cooldownEl = document.getElementById('kw-cooldown');
+          cooldownEl.value = data.cooldown_seconds == null ? '' : data.cooldown_seconds;
+          cooldownEl.placeholder = String(data.default_cooldown_seconds ?? 60);
+          document.getElementById('kw-cooldown-hint').textContent =
+            `留空使用环境变量默认值 ${data.default_cooldown_seconds ?? 60} 秒；规则文件：${data.file || '未配置'}`;
+          document.getElementById('kw-errors').hidden = true;
+          const rules = Array.isArray(data.rules) ? data.rules : [];
+          renderKeywordRows(rules);
+          markFormClean('kw');
+          kwReady = true;
+          document.getElementById('kw-meta').textContent = `已加载 ${rules.length} 条规则`;
+        } finally {
+          setKwBusy(false);
         }
-        kwWritable = !!data.writable;
-        document.getElementById('kw-disabled-banner').hidden = !!data.enabled;
-        document.getElementById('kw-readonly-banner').hidden = kwWritable;
-        document.getElementById('kw-save').disabled = !kwWritable;
-        const cooldownEl = document.getElementById('kw-cooldown');
-        cooldownEl.value = data.cooldown_seconds == null ? '' : data.cooldown_seconds;
-        cooldownEl.placeholder = String(data.default_cooldown_seconds ?? 60);
-        document.getElementById('kw-cooldown-hint').textContent =
-          `留空使用环境变量默认值 ${data.default_cooldown_seconds ?? 60} 秒；规则文件：${data.file || '未配置'}`;
-        document.getElementById('kw-errors').hidden = true;
-        const rules = Array.isArray(data.rules) ? data.rules : [];
-        renderKeywordRows(rules);
-        document.getElementById('kw-meta').textContent = `已加载 ${rules.length} 条规则`;
       }
 
       async function saveKeywordRules() {
+        if (kwBusy || !kwReady) return;
         const rows = Array.from(document.querySelectorAll('#kw-rows .kw-row'));
         const rules = rows.map(kwRuleFromDom);
         const cooldownRaw = document.getElementById('kw-cooldown').value.trim();
@@ -2104,9 +2273,11 @@
           rules,
           cooldown_seconds: cooldownRaw === '' ? null : Number(cooldownRaw),
         };
-        const btn = document.getElementById('kw-save');
+        // 请求期间输入框没锁，用户还能接着改。基线必须是"真正发出去的那份"，
+        // 否则请求中新敲的内容会被当成已保存，之后刷新就无声丢掉。
+        const sent = formSnapshot.kw();
         const errBox = document.getElementById('kw-errors');
-        btn.disabled = true;
+        setKwBusy(true);
         try {
           const res = await fetch('/admin/api/keyword_rules', {
             method: 'PUT',
@@ -2127,12 +2298,13 @@
             throw new Error(data.detail || '保存失败');
           }
           errBox.hidden = true;
+          formClean.kw = sent;
           document.getElementById('kw-meta').textContent = `已保存 ${data.count} 条规则（立即生效）`;
           showToast('关键词规则已保存并生效');
         } catch (err) {
           showToast(err.message || '保存失败', true);
         } finally {
-          btn.disabled = !kwWritable;
+          setKwBusy(false);
         }
       }
 
@@ -2142,7 +2314,9 @@
         if (empty) empty.remove();
         box.insertAdjacentHTML('beforeend', kwRowHtml({ keywords: [], reply: '' }));
       });
-      document.getElementById('kw-refresh').addEventListener('click', loadKeywordRules);
+      document.getElementById('kw-refresh').addEventListener('click', () => {
+        if (confirmDiscard('kw', '关键词规则')) loadKeywordRules();
+      });
       document.getElementById('kw-save').addEventListener('click', saveKeywordRules);
       document.getElementById('kw-rows').addEventListener('click', (e) => {
         const del = e.target.closest('.kw-del');
@@ -2162,11 +2336,16 @@
 
       const TAB_BY_INDEX = ['overview', 'joins', 'ads', 'bans', 'keywords', 'keyword-deletions', 'settings'];
       function activateTab(name, push = true) {
-        const target = document.querySelector(`.nav-item[data-target="${name}"]`);
+        const navItems = document.querySelectorAll('.nav-item');
+        const target = [...navItems].find((n) => n.dataset.target === name);
         if (!target) return;
-        document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
+        navItems.forEach((n) => {
+          const on = n === target;
+          n.classList.toggle('active', on);
+          if (on) n.setAttribute('aria-current', 'page');
+          else n.removeAttribute('aria-current');
+        });
         document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
-        target.classList.add('active');
         const panel = document.getElementById(name + '-panel');
         if (panel) panel.classList.add('active');
         if (push) updateUrl({ tab: name });
@@ -2184,21 +2363,23 @@
         };
       }
 
+      // value 来自 URL 查询串，拼进选择器会因引号等字符抛 SyntaxError 并中断整个恢复流程，
+      // 所以一律取出候选后在 JS 里比对。
       function syncRadio(name, value) {
-        const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
+        const el = [...document.querySelectorAll(`input[name="${name}"]`)]
+          .find((i) => i.value === String(value));
         if (el && !el.checked) el.checked = true;
       }
       function setCombo(btnId, value) {
         const btn = document.getElementById(btnId);
         if (!btn) return;
         if (String(btn.dataset.value) === String(value)) return;
-        const li = document.querySelector(`#${btnId.replace('-btn', '-list')} li[data-value="${value}"]`);
+        const items = document.querySelectorAll(`#${btnId.replace('-btn', '-list')} li`);
+        const li = [...items].find((o) => o.dataset.value === String(value));
         if (!li) return;
         btn.dataset.value = value;
         btn.querySelector('.value').textContent = li.querySelector('span').textContent;
-        document.querySelectorAll(`#${btnId.replace('-btn', '-list')} li`).forEach((o) => {
-          o.setAttribute('aria-selected', o === li ? 'true' : 'false');
-        });
+        items.forEach((o) => o.setAttribute('aria-selected', o === li ? 'true' : 'false'));
       }
 
       function readUrlState() {
@@ -2310,6 +2491,24 @@
 
       if (CHATS.length === 1) document.body.classList.add('single-chat');
 
+      // 弹窗打开时 Tab 仍会走到背后的页面元素，键盘用户会"掉出"弹窗却看不出来。
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab') return;
+        const modal = document.querySelector('.modal-backdrop:not([hidden])');
+        if (!modal) return;
+        const items = [...modal.querySelectorAll(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        )].filter((el) => !el.disabled && el.offsetParent !== null);
+        if (!items.length) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === modal)) {
+          e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault(); first.focus();
+        }
+      });
+
       document.addEventListener('keydown', (e) => {
         const tag = (e.target.tagName || '').toLowerCase();
         const inField = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
@@ -2358,14 +2557,14 @@
         const isPattern = typeof rule.pattern === 'string' && rule.pattern.length > 0;
         const keywords = Array.isArray(rule.keywords) ? rule.keywords.join('，') : '';
         return `
-          <div class="kw-row">
+          <div class="kw-row${isPattern ? ' is-pattern' : ''}">
             <select class="kd-type" aria-label="匹配方式">
               <option value="keywords"${isPattern ? '' : ' selected'}>关键词</option>
               <option value="pattern"${isPattern ? ' selected' : ''}>正则</option>
             </select>
-            <input type="text" class="kd-keywords" placeholder="多个关键词用逗号分隔"
+            <input type="text" class="kd-keywords" placeholder="多个关键词用逗号分隔" aria-label="删除关键词"
               value="${esc(keywords)}" ${isPattern ? 'hidden' : ''} />
-            <input type="text" class="kd-pattern" placeholder="正则表达式，如 (?i)(广告|推广)"
+            <input type="text" class="kd-pattern" placeholder="正则表达式，如 (?i)(广告|推广)" aria-label="删除正则表达式"
               value="${esc(isPattern ? rule.pattern : '')}" ${isPattern ? '' : 'hidden'} />
             <select class="kd-match" aria-label="命中条件" ${isPattern ? 'hidden' : ''}>
               <option value="any"${rule.match === 'all' ? '' : ' selected'}>任一命中</option>
@@ -2374,7 +2573,7 @@
             <label class="kw-case" ${isPattern ? 'hidden' : ''}>
               <input type="checkbox" class="kd-case-cb"${rule.case_sensitive ? ' checked' : ''} /> 区分大小写
             </label>
-            <button type="button" class="secondary kw-del" title="删除此规则">✕</button>
+            <button type="button" class="secondary kw-del" title="删除此规则" aria-label="删除此规则"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
           </div>`;
       }
 
@@ -2398,36 +2597,53 @@
         return rule;
       }
 
+      let kdBusy = false;
+      let kdReady = false;
+      function setKdBusy(busy) {
+        kdBusy = busy;
+        document.getElementById('kd-refresh').disabled = busy;
+        document.getElementById('kd-add').disabled = busy || !kdReady;
+        document.getElementById('kd-save').disabled = busy || !kdReady || !kdWritable;
+      }
+
       async function loadKdRules() {
-        let data;
+        if (kdBusy) return;
+        setKdBusy(true);
         try {
-          const res = await fetch('/admin/api/keyword_deletions');
-          if (res.status === 401) { location.href = '/admin/login'; return; }
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || '加载失败');
+          let data;
+          try {
+            const res = await fetch('/admin/api/keyword_deletions');
+            if (res.status === 401) { location.href = '/admin/login'; return; }
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.detail || '加载失败');
+            }
+            data = await res.json();
+          } catch (err) {
+            showToast(err.message || '关键词删除规则加载失败', true);
+            return;
           }
-          data = await res.json();
-        } catch (err) {
-          showToast(err.message || '关键词删除规则加载失败', true);
-          return;
+          kdWritable = !!data.writable;
+          document.getElementById('kd-disabled-banner').hidden = !!data.enabled;
+          document.getElementById('kd-readonly-banner').hidden = kdWritable;
+          document.getElementById('kd-errors').hidden = true;
+          const rules = Array.isArray(data.rules) ? data.rules : [];
+          renderKdRows(rules);
+          markFormClean('kd');
+          kdReady = true;
+          document.getElementById('kd-meta').textContent = `已加载 ${rules.length} 条规则${data.file ? ' · ' + data.file : ''}`;
+        } finally {
+          setKdBusy(false);
         }
-        kdWritable = !!data.writable;
-        document.getElementById('kd-disabled-banner').hidden = !!data.enabled;
-        document.getElementById('kd-readonly-banner').hidden = kdWritable;
-        document.getElementById('kd-save').disabled = !kdWritable;
-        document.getElementById('kd-errors').hidden = true;
-        const rules = Array.isArray(data.rules) ? data.rules : [];
-        renderKdRows(rules);
-        document.getElementById('kd-meta').textContent = `已加载 ${rules.length} 条规则${data.file ? ' · ' + data.file : ''}`;
       }
 
       async function saveKdRules() {
+        if (kdBusy || !kdReady) return;
         const rows = Array.from(document.querySelectorAll('#kd-rows .kw-row'));
         const rules = rows.map(kdRuleFromDom);
-        const btn = document.getElementById('kd-save');
+        const sent = formSnapshot.kd();
         const errBox = document.getElementById('kd-errors');
-        btn.disabled = true;
+        setKdBusy(true);
         try {
           const res = await fetch('/admin/api/keyword_deletions', {
             method: 'PUT',
@@ -2448,12 +2664,13 @@
             throw new Error(data.detail || '保存失败');
           }
           errBox.hidden = true;
+          formClean.kd = sent;
           document.getElementById('kd-meta').textContent = `已保存 ${data.count} 条规则（立即生效）`;
           showToast('关键词删除规则已保存并生效');
         } catch (err) {
           showToast(err.message || '保存失败', true);
         } finally {
-          btn.disabled = !kdWritable;
+          setKdBusy(false);
         }
       }
 
@@ -2463,7 +2680,9 @@
         if (empty) empty.remove();
         box.insertAdjacentHTML('beforeend', kdRowHtml({ keywords: [] }));
       });
-      document.getElementById('kd-refresh').addEventListener('click', loadKdRules);
+      document.getElementById('kd-refresh').addEventListener('click', () => {
+        if (confirmDiscard('kd', '关键词删除规则')) loadKdRules();
+      });
       document.getElementById('kd-save').addEventListener('click', saveKdRules);
       document.getElementById('kd-rows').addEventListener('click', (e) => {
         const del = e.target.closest('.kw-del');
@@ -2474,11 +2693,14 @@
         if (!sel) return;
         const row = sel.closest('.kw-row');
         const isPattern = sel.value === 'pattern';
+        row.classList.toggle('is-pattern', isPattern);
         row.querySelector('.kd-keywords').hidden = isPattern;
         row.querySelector('.kd-match').hidden = isPattern;
         row.querySelector('.kw-case').hidden = isPattern;
         row.querySelector('.kd-pattern').hidden = !isPattern;
       });
+
+      loadKdRules();
 
       // ===== 离开页面提醒（防误关） =====
       let leaveGuardBypass = false;
@@ -2501,7 +2723,10 @@
         const help = f.help ? `<span class="setting-help">${esc(f.help)}</span>` : '';
         if (f.kind === 'bool') {
           const ineffective = (f.key === 'AD_GUARD_ENABLED' && f.value === 'true' && f.effective === false)
-            ? '<span class="setting-help" style="color:#e6a23c;">⚠️ 已开启但当前未生效：请检查 AI 总开关与对应端点/密钥配置</span>'
+            ? `<span class="setting-help is-warn">
+                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+                 <span>已开启但当前未生效：请检查 AI 总开关与对应端点/密钥配置</span>
+               </span>`
             : '';
           return `<div class="setting-item setting-check">
             <input type="checkbox" id="${id}" data-key="${f.key}"${f.value === 'true' ? ' checked' : ''} />
@@ -2529,31 +2754,55 @@
         </div>`;
       }
 
+      let settingsBusy = false;
+      function setSettingsBusy(busy) {
+        settingsBusy = busy;
+        document.getElementById('settings-save').disabled = busy;
+        document.getElementById('settings-reload').disabled = busy;
+      }
+
       async function loadSettings() {
-        let data;
+        if (settingsBusy) return;
+        setSettingsBusy(true);
         try {
-          const res = await fetch('/admin/api/settings');
-          if (res.status === 401) { location.href = '/admin/login'; return; }
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || '加载失败');
+          let data;
+          try {
+            const res = await fetch('/admin/api/settings');
+            if (res.status === 401) { location.href = '/admin/login'; return; }
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.detail || '加载失败');
+            }
+            data = await res.json();
+          } catch (err) {
+            showToast(err.message || '设置加载失败', true);
+            return;
           }
-          data = await res.json();
-        } catch (err) {
-          showToast(err.message || '设置加载失败', true);
-          return;
+          document.getElementById('settings-groups').innerHTML = (data.groups || []).map((g) => `
+            <div class="card settings-group">
+              <h3>${esc(g.name)}</h3>
+              <div class="settings-fields">${g.fields.map(settingInputHtml).join('')}</div>
+            </div>`).join('');
+          markFormClean('settings');
+        } finally {
+          setSettingsBusy(false);
         }
-        document.getElementById('settings-groups').innerHTML = (data.groups || []).map((g) => `
-          <div class="card settings-group">
-            <h3>${esc(g.name)}</h3>
-            <div class="settings-fields">${g.fields.map(settingInputHtml).join('')}</div>
-          </div>`).join('');
+      }
+
+      function showFormErrors(boxId, errors) {
+        const box = document.getElementById(boxId);
+        if (!errors || !errors.length) { box.hidden = true; box.innerHTML = ''; return; }
+        box.innerHTML = `<strong>保存失败，请修正以下 ${errors.length} 项：</strong><ul>${
+          errors.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>`;
+        box.hidden = false;
+        box.scrollIntoView({ block: 'nearest' });
       }
 
       async function saveSettings() {
+        if (settingsBusy) return;
         const adminToggle = document.querySelector('#settings-groups [data-key="ADMIN_WEB_ENABLED"]');
         if (adminToggle && !adminToggle.checked) {
-          if (!confirm('⚠️ 你正在关闭 Admin 后台！\n\n保存后本管理页面将立即不可用，只能到服务器上修改 data/admin_overrides.json 或 .env 后重启恢复。\n\n确定要继续吗？')) {
+          if (!confirm('【警告】你正在关闭 Admin 后台！\n\n保存后本管理页面将立即不可用，只能到服务器上修改 data/admin_overrides.json 或 .env 后重启恢复。\n\n确定要继续吗？')) {
             return;
           }
         }
@@ -2561,8 +2810,8 @@
         document.querySelectorAll('#settings-groups [data-key]').forEach((el) => {
           values[el.dataset.key] = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value;
         });
-        const btn = document.getElementById('settings-save');
-        btn.disabled = true;
+        const sent = formSnapshot.settings();
+        setSettingsBusy(true);
         try {
           const res = await fetch('/admin/api/settings', {
             method: 'PUT',
@@ -2574,13 +2823,14 @@
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            if (Array.isArray(data.errors) && data.errors.length) {
-              showToast(`校验失败：${data.errors.join('；')}`, true);
-            } else {
-              showToast(data.detail || '保存失败', true);
-            }
+            const errs = Array.isArray(data.errors) && data.errors.length
+              ? data.errors : [data.detail || '保存失败'];
+            showFormErrors('settings-errors', errs);
+            showToast('保存失败，请查看下方错误说明', true);
             return;
           }
+          showFormErrors('settings-errors', null);
+          formClean.settings = sent;
           document.getElementById('settings-meta').textContent =
             `上次保存：${new Date().toLocaleTimeString()}`;
           if (Array.isArray(data.restart_required) && data.restart_required.length) {
@@ -2593,34 +2843,57 @@
         } catch (err) {
           showToast(err.message || '保存失败', true);
         } finally {
-          btn.disabled = false;
+          setSettingsBusy(false);
         }
       }
 
       // ===== 重启 =====
       function openRestartModal(keys) {
         document.getElementById('restart-keys').textContent = keys.join('\n');
-        document.getElementById('restart-modal').hidden = false;
+        modalReturnFocus = document.activeElement;
+        const modal = document.getElementById('restart-modal');
+        modal.hidden = false;
+        modal.focus();
       }
       function closeRestartModal() {
         document.getElementById('restart-modal').hidden = true;
+        restoreModalFocus();
       }
       async function restartNow() {
         closeRestartModal();
         leaveGuardBypass = true;
         try {
-          await fetch('/admin/api/restart', {
+          const res = await fetch('/admin/api/restart', {
             method: 'POST',
             headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
           });
-        } catch (e) {}
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || '重启请求失败');
+          }
+        } catch (err) {
+          // 重启没发起成功就进等待轮询，页面会一直显示"重启中"却永远等不到，
+          // 用户以为在重启、实际配置还没生效。
+          leaveGuardBypass = false;
+          showToast(err.message || '重启请求失败', true);
+          return;
+        }
         waitForRestartAndReload();
       }
       function waitForRestartAndReload() {
         document.getElementById('settings-meta').textContent = '服务重启中…恢复后页面将自动刷新';
         showToast('服务重启中，请稍候…');
         setTimeout(() => {
+          // 服务再也起不来时这个定时器会一直跑，页面永远停在"重启中"。
+          // 2 分钟兜底：超时就说清楚，让人自己去服务器看。
+          let ticks = 0;
           const timer = setInterval(async () => {
+            if (++ticks > 60) {
+              clearInterval(timer);
+              document.getElementById('settings-meta').textContent = '等待服务恢复超时，请登录服务器确认进程状态';
+              showToast('等待服务恢复超时，请到服务器确认', true);
+              return;
+            }
             try {
               const res = await fetch('/healthz', { cache: 'no-store' });
               if (res.ok) {
@@ -2753,16 +3026,44 @@
       function pollUpdateStatus() {
         if (updatePolling) clearInterval(updatePolling);
         let sawServerDown = false;
+        // 后端卡死或服务再没起来时，只靠状态判断会让这个定时器永远跑下去，
+        // 按钮也永远禁用。10 分钟兜底：超时就交还控制权，让人自己去服务器看。
+        let ticks = 0;
+        const MAX_TICKS = 400;
+        // 上一次还没回来就再发一次，两个响应倒序落地会把终态覆盖回中间态：
+        // 先返回的"失败"日志会被后返回的旧"安装中"盖掉。
+        let inFlight = false;
         updatePolling = setInterval(async () => {
+          if (inFlight) return;
+          if (++ticks > MAX_TICKS) {
+            clearInterval(updatePolling);
+            updatePolling = null;
+            document.getElementById('ver-update').disabled = false;
+            document.getElementById('ver-rollback').disabled = false;
+            document.getElementById('update-log').textContent +=
+              '\n\n[超时] 已等待 10 分钟仍无结果，请登录服务器查看更新日志。';
+            showToast('更新状态查询超时，请到服务器确认', true);
+            return;
+          }
           let st;
+          inFlight = true;
           try {
             const res = await fetch('/admin/api/update/status', { cache: 'no-store' });
+            if (res.status === 401) {
+              clearInterval(updatePolling);
+              updatePolling = null;
+              location.href = '/admin/login';
+              return;
+            }
             if (!res.ok) return;
             st = await res.json();
           } catch (e) {
-            // 服务可能正在重启
-            sawServerDown = true;
+            // 只有网络层真的断了才算服务在重启。JSON 解析失败之类的异常不算，
+            // 否则一次坏响应就会让下一次成功响应直接刷新页面、丢掉更新进度。
+            if (e instanceof TypeError) sawServerDown = true;
             return;
+          } finally {
+            inFlight = false;
           }
           if (sawServerDown) {
             // 服务从重启中恢复：内存里的进度已清空，直接刷新页面
@@ -2778,12 +3079,12 @@
             updatePolling = null;
             document.getElementById('ver-update').disabled = false;
             document.getElementById('ver-rollback').disabled = false;
-            logEl.textContent += `\n\n❌ ${st.error || '更新失败'}`;
+            logEl.textContent += `\n\n[失败] ${st.error || '更新失败'}`;
             showToast(st.error || '更新失败', true);
           } else if (st.state === 'restarting') {
             clearInterval(updatePolling);
             updatePolling = null;
-            logEl.textContent += '\n\n✅ 更新完成，服务重启中…';
+            logEl.textContent += '\n\n[完成] 更新完成，服务重启中…';
             leaveGuardBypass = true;
             waitForRestartAndReload();
           }
@@ -2816,15 +3117,37 @@
 
       // ===== 关停服务 =====
       async function shutdownService() {
-        if (!confirm('⚠️ 确认要关停整个服务吗？\n\n机器人与管理后台都将停止运行。')) return;
+        if (!confirm('【警告】确认要关停整个服务吗？\n\n机器人与管理后台都将停止运行。')) return;
         if (!confirm('再次确认：关停后只能到服务器上手动启动服务。\n（systemd/pm2 守护下进程可能被自动拉起）\n\n确定关停吗？')) return;
         leaveGuardBypass = true;
         try {
-          await fetch('/admin/api/shutdown', {
+          const res = await fetch('/admin/api/shutdown', {
             method: 'POST',
             headers: { 'X-CSRF-Token': getCookie('kk_admin_csrf') },
           });
-        } catch (e) {}
+          // 服务真的关停时连接会被切断，走 catch；这里只拦被服务端明确拒绝的情况。
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || '关停请求被拒绝');
+          }
+        } catch (err) {
+          if (err instanceof TypeError) {
+            // 浏览器自己断网时 fetch 抛的也是 TypeError，跟服务关停长得一模一样。
+            // 不区分的话纯断网也会误报"服务已关停"，而机器人其实还在跑。
+            if (!navigator.onLine) {
+              leaveGuardBypass = false;
+              showToast('网络已断开，无法确认关停结果，请恢复网络后重试', true);
+              return;
+            }
+            // 连接中断说明服务已经开始关停，属于预期。
+            document.getElementById('settings-meta').textContent = '服务正在关停…此页面即将失联';
+            showToast('服务正在关停…');
+            return;
+          }
+          leaveGuardBypass = false;
+          showToast(err.message || '关停请求失败', true);
+          return;
+        }
         document.getElementById('settings-meta').textContent = '服务正在关停…此页面即将失联';
         showToast('服务正在关停…');
       }
@@ -2856,36 +3179,64 @@
         </div>`;
       }
 
+      // csReady 记录当前是否有一份加载成功的字段可保存：加载失败或还没选群时，
+      // 忙碌状态解除也不能把保存按钮放出来。
+      let csBusy = false;
+      let csReady = false;
+      function setCsBusy(busy) {
+        csBusy = busy;
+        document.getElementById('cs-chat-btn').disabled = busy;
+        document.getElementById('cs-save').disabled = busy || !csReady;
+      }
+
       async function loadChatSettings() {
+        if (csBusy) return;
         const box = document.getElementById('cs-fields');
-        const saveBtn = document.getElementById('cs-save');
+        showFormErrors('cs-errors', null);
+        csReady = false;
         if (!csChatId) {
           box.innerHTML = '<div class="empty"><p>请先选择要配置的群。</p></div>';
-          saveBtn.disabled = true;
+          setCsBusy(false);
           return;
         }
+        // 请求发出后用户可能已经切到别的群。不锁定这次请求对应的群，
+        // 晚回的响应会把上一个群的字段渲染进来，之后保存就会写错群。
+        const chatId = csChatId;
+        setCsBusy(true);
         try {
-          const res = await fetch(`/admin/api/chat_settings?chat_id=${encodeURIComponent(csChatId)}`);
+          const res = await fetch(`/admin/api/chat_settings?chat_id=${encodeURIComponent(chatId)}`);
           if (res.status === 401) { location.href = '/admin/login'; return; }
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.detail || '加载失败');
+          if (chatId !== csChatId) return;
           box.innerHTML = (data.fields || []).map(csFieldHtml).join('');
-          saveBtn.disabled = false;
+          box.dataset.chatId = chatId;
+          markFormClean('cs');
+          csReady = true;
           document.getElementById('cs-meta').textContent =
-            `群 ${csChatId} · 已覆盖 ${(data.fields || []).filter((f) => f.override != null && f.override !== '').length} 项`;
+            `群 ${chatId} · 已覆盖 ${(data.fields || []).filter((f) => f.override != null && f.override !== '').length} 项`;
         } catch (err) {
-          showToast(err.message || '按群配置加载失败', true);
+          if (chatId === csChatId) showToast(err.message || '按群配置加载失败', true);
+        } finally {
+          setCsBusy(false);
         }
       }
 
       async function saveChatSettings() {
-        if (!csChatId) return;
+        if (csBusy || !csChatId) return;
+        const box = document.getElementById('cs-fields');
+        if (box.dataset.chatId !== String(csChatId)) {
+          showToast('配置尚未加载完成，请稍候重试', true);
+          return;
+        }
+        const chatId = csChatId;
         const values = {};
         document.querySelectorAll('#cs-fields [data-cs-key]').forEach((el) => {
           values[el.dataset.csKey] = el.value === '' ? null : el.value;
         });
-        const btn = document.getElementById('cs-save');
-        btn.disabled = true;
+        const sent = formSnapshot.cs();
+        let reload = false;
+        setCsBusy(true);
         try {
           const res = await fetch('/admin/api/chat_settings', {
             method: 'PUT',
@@ -2893,35 +3244,48 @@
               'Content-Type': 'application/json',
               'X-CSRF-Token': getCookie('kk_admin_csrf'),
             },
-            body: JSON.stringify({ chat_id: Number(csChatId), values }),
+            body: JSON.stringify({ chat_id: Number(chatId), values }),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            if (Array.isArray(data.errors) && data.errors.length) {
-              showToast(`校验失败：${data.errors.join('；')}`, true);
-            } else {
-              showToast(data.detail || '保存失败', true);
-            }
+            const errs = Array.isArray(data.errors) && data.errors.length
+              ? data.errors : [data.detail || '保存失败'];
+            showFormErrors('cs-errors', errs);
+            showToast('保存失败，请查看下方错误说明', true);
             return;
           }
-          showToast(`群 ${csChatId} 配置已保存并生效（覆盖 ${data.count} 项）`);
-          loadChatSettings();
+          showFormErrors('cs-errors', null);
+          formClean.cs = sent;
+          showToast(`群 ${chatId} 配置已保存并生效（覆盖 ${data.count} 项）`);
+          // 请求期间又改了东西，就别自动重载去冲掉它，留给用户自己决定。
+          reload = chatId === csChatId && formSnapshot.cs() === sent;
         } catch (err) {
           showToast(err.message || '保存失败', true);
         } finally {
-          btn.disabled = false;
+          setCsBusy(false);
         }
+        // 放在 finally 之后：忙碌标志没解除前 loadChatSettings 会被自己的互斥挡掉。
+        if (reload) loadChatSettings();
       }
 
       buildCombobox('cs-chat-btn', 'cs-chat-list',
         CHATS.map((c) => ({ value: String(c), label: fmtChatLabel(c) })),
-        (v) => { csChatId = v; loadChatSettings(); });
+        (v) => {
+          if (!confirmDiscard('cs', '按群配置')) {
+            setCombo('cs-chat-btn', csChatId);
+            return;
+          }
+          csChatId = v;
+          loadChatSettings();
+        });
 
       document.getElementById('cs-save').addEventListener('click', saveChatSettings);
       document.getElementById('ver-rollback').addEventListener('click', startRollback);
       document.getElementById('shutdown-btn').addEventListener('click', shutdownService);
       document.getElementById('settings-save').addEventListener('click', saveSettings);
-      document.getElementById('settings-reload').addEventListener('click', loadSettings);
+      document.getElementById('settings-reload').addEventListener('click', () => {
+        if (confirmDiscard('settings', '系统设置')) loadSettings();
+      });
       document.getElementById('ver-check').addEventListener('click', checkVersionNow);
       document.getElementById('ver-update').addEventListener('click', startUpdate);
       document.getElementById('restart-now').addEventListener('click', restartNow);

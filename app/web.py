@@ -909,7 +909,7 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
     @app.get("/verify/{token}", response_class=HTMLResponse)
     async def render_verification_page(request: Request, token: str) -> HTMLResponse:
         record = await store.get(token)
-        context = _build_template_context(request, record, token)
+        context = _build_template_context(request, record)
         return templates.TemplateResponse(request, "verify.html", context)
 
     @app.post("/verify/{token}")
@@ -1004,7 +1004,6 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
 def _build_template_context(
     request: Request,
     record: VerificationRecord | None,
-    token: str,
 ) -> Dict[str, Any]:
     if record is None:
         message = "验证链接无效或已被使用。"
@@ -1024,7 +1023,6 @@ def _build_template_context(
 
     return {
         "request": request,
-        "token": token,
         "message": message,
         "show_button": show_button,
     }

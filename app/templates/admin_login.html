@@ -4,23 +4,33 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>TG-GUARD ADMIN · 登录</title>
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap"
-    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+SC:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
     <style>
-      :root {
-        --color-primary: #2563eb;
-        --color-primary-hover: #1d4ed8;
-        --color-bg: #f8fafc;
-        --color-card: #ffffff;
-        --color-border: #e2e8f0;
-        --color-text: #0f172a;
-        --color-text-muted: #64748b;
-        --color-destructive: #dc2626;
-        --color-destructive-bg: #fef2f2;
-        color-scheme: light;
-      }
+:root{
+  color-scheme: light dark;
+  --paper:#f4f5f3; --surface:#ffffff; --surface-2:#fafbf9;
+  --ink:#15181a; --ink-2:#4c5459; --ink-3:#67716c;
+  --rule:#e0e3e0; --rule-2:#c8cdc9;
+  --accent:#0e5c4f; --accent-soft:#e2efeb;
+  --pass:#14664f; --warn:#8a5a0b; --danger:#a3291f;
+  --pass-bg:#e6f1ec; --warn-bg:#f7efdf; --danger-bg:#f7e9e7;
+  --sans:"IBM Plex Sans SC","IBM Plex Sans",-apple-system,"PingFang SC",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --z-sticky:20; --z-header:30; --z-modal:60; --z-toast:80;
+  --r:5px; --r-lg:8px; --tap:44px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:#101312; --surface:#171b1a; --surface-2:#1c2120;
+    --ink:#e7eae8; --ink-2:#a3aca8; --ink-3:#8a9491;
+    --rule:#272d2b; --rule-2:#38403d;
+    --accent:#5fc0aa; --accent-soft:#16302a;
+    --pass:#5fc0aa; --warn:#d9a248; --danger:#e0776b;
+    --pass-bg:#16302a; --warn-bg:#332a15; --danger-bg:#331e1b;
+  }
+}
 
       * {
         box-sizing: border-box;
@@ -30,10 +40,13 @@
       body {
         margin: 0;
         padding: 0;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC",
-          "Microsoft YaHei", Arial, sans-serif;
-        color: var(--color-text);
-        background: var(--color-bg);
+        min-width: 0;
+        font-family: var(--sans);
+        color: var(--ink);
+        background: var(--paper);
+        font-size: 14px;
+        line-height: 1.55;
+        -webkit-text-size-adjust: 100%;
       }
 
       body {
@@ -42,165 +55,239 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 24px;
-        padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-        padding-top: calc(24px + env(safe-area-inset-top, 0px));
+        padding: max(24px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
       }
 
       .card {
-        width: 100%;
-        max-width: 420px;
-        background: var(--color-card);
-        border: 1px solid var(--color-border);
-        border-radius: 16px;
-        padding: 36px 32px;
-        box-shadow: 0 24px 48px -28px rgba(15, 23, 42, 0.18),
-          0 4px 12px -6px rgba(15, 23, 42, 0.06);
-        text-align: center;
+        position: relative;
+        width: min(480px, 100%);
+        min-width: 0;
+        padding: 32px;
+        overflow-wrap: anywhere;
+        background: var(--surface);
+        border: 1px solid var(--rule);
+        border-top-color: var(--rule-2);
+        border-radius: var(--r);
+      }
+
+      .card::before {
+        content: "";
+        position: absolute;
+        top: 18px;
+        bottom: 18px;
+        left: -1px;
+        width: 2px;
+        background: var(--accent);
+      }
+
+      .card-header {
+        display: grid;
+        grid-template-columns: var(--tap) minmax(0, 1fr);
+        gap: 14px;
+        align-items: center;
+        padding-bottom: 22px;
+        border-bottom: 1px solid var(--rule);
       }
 
       .logo {
-        width: 48px;
-        height: 48px;
-        margin: 0 auto 16px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(37, 99, 235, 0.08);
-        color: var(--color-primary);
+        width: var(--tap);
+        height: var(--tap);
+        display: grid;
+        place-items: center;
+        color: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: var(--r);
       }
 
       .logo svg {
-        width: 26px;
-        height: 26px;
+        width: 24px;
+        height: 24px;
+      }
+
+      .eyebrow,
+      .section-label {
+        margin: 0;
+        color: var(--ink-3);
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: .13em;
+        line-height: 1.4;
+        text-transform: uppercase;
       }
 
       h1 {
-        margin: 0 0 8px;
+        margin: 4px 0 0;
         font-size: 22px;
         font-weight: 600;
-        letter-spacing: -0.01em;
+        line-height: 1.2;
+        letter-spacing: -.02em;
       }
 
       .subtitle {
-        margin: 0 0 24px;
+        margin: 18px 0 0;
+        color: var(--ink-2);
         font-size: 14px;
-        color: var(--color-text-muted);
-        line-height: 1.6;
+        line-height: 1.7;
       }
 
       .error {
-        margin: 0 0 20px;
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 9px;
+        align-items: start;
+        margin: 18px 0 0;
         padding: 12px 14px;
-        border-radius: 10px;
-        background: var(--color-destructive-bg);
-        color: var(--color-destructive);
-        font-size: 13px;
-        text-align: left;
-        border: 1px solid rgba(220, 38, 38, 0.18);
+        color: var(--danger);
+        background: var(--danger-bg);
+        border: 1px solid var(--rule);
+        border-left: 2px solid var(--danger);
+        border-radius: var(--r);
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 1.6;
+      }
+
+      .error svg {
+        width: 18px;
+        height: 18px;
+        margin-top: 2px;
+      }
+
+      .auth-section {
+        margin-top: 24px;
       }
 
       .login-area {
         display: flex;
+        align-items: center;
         justify-content: center;
+        width: 100%;
         min-height: 56px;
-        margin: 4px 0 16px;
+        margin-top: 10px;
+        padding: 6px 0;
+        border-top: 1px solid var(--rule);
+        border-bottom: 1px solid var(--rule);
       }
 
-      .hint {
-        margin: 16px 0 0;
-        padding-top: 16px;
-        border-top: 1px solid var(--color-border);
-        font-size: 12px;
-        color: var(--color-text-muted);
-        line-height: 1.6;
+      .login-area iframe {
+        min-width: var(--tap);
+        min-height: var(--tap);
+        max-width: 100%;
+        border-radius: var(--r);
       }
 
-      .hint code {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        background: #f1f5f9;
-        padding: 1px 6px;
-        border-radius: 4px;
-        color: var(--color-text);
-        font-size: 12px;
+      /* Telegram 的 widget 脚本来自 telegram.org，网络不通时该区域会一直空白。
+         延迟 3 秒再显示提示，避免正常加载时闪一下。 */
+      .login-fallback {
+        margin: 0;
+        color: var(--ink-3);
+        font-size: 12.5px;
+        line-height: 1.7;
+        text-align: center;
+        opacity: 0;
+        animation: fallback-in 200ms ease 3s forwards;
+      }
+
+      .login-area:has(iframe) .login-fallback {
+        display: none;
+      }
+
+      @keyframes fallback-in {
+        to { opacity: 1; }
       }
 
       .disabled-message {
-        font-size: 13px;
-        color: var(--color-text-muted);
+        margin: 24px 0 0;
+        padding: 14px 16px;
+        color: var(--ink-2);
+        background: var(--surface-2);
+        border: 1px solid var(--rule);
+        border-left: 2px solid var(--accent);
+        border-radius: var(--r);
+        font-size: 14px;
         line-height: 1.7;
       }
-      /* UI/UX Pro 系统覆盖：与后台一致的安全运营登录页 */
-      :root {
-        --color-primary: #1e40af;
-        --color-primary-hover: #1d4ed8;
-        --color-bg: #f5f7fb;
-        --color-card: #ffffff;
-        --color-border: #dbeafe;
-        --color-text: #0f172a;
-        --color-text-muted: #475569;
-        --color-destructive: #dc2626;
-        --color-destructive-bg: #fef2f2;
-        --font-sans: "Fira Sans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
-        --font-mono: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+      .disabled-message code {
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 12.5px;
+        font-variant-numeric: tabular-nums;
+        overflow-wrap: anywhere;
       }
-      html, body { font-family: var(--font-sans); }
-      body {
-        background:
-          radial-gradient(circle at 18% 10%, rgba(59, 130, 246, 0.16), transparent 32%),
-          radial-gradient(circle at 80% 80%, rgba(217, 119, 6, 0.10), transparent 28%),
-          linear-gradient(180deg, #f8fbff 0%, var(--color-bg) 100%);
+
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible,
+      iframe:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
-      .card {
-        max-width: 460px;
-        border-color: rgba(219, 234, 254, 0.95);
-        border-radius: 22px;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 28px 64px -36px rgba(30, 64, 175, 0.36);
-      }
-      .logo {
-        background: linear-gradient(135deg, rgba(30, 64, 175, 0.14), rgba(59, 130, 246, 0.08));
-        box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.10);
-      }
-      h1 { letter-spacing: -0.03em; }
-      .subtitle { color: var(--color-text-muted); }
-      .error {
-        border-color: rgba(220, 38, 38, 0.24);
-        font-weight: 500;
-      }
-      .hint code, .disabled-message code {
-        font-family: var(--font-mono);
-        background: #eff6ff;
-        color: var(--color-primary);
-      }
-      .disabled-message {
-        padding: 14px 16px;
-        border: 1px solid var(--color-border);
-        border-radius: 14px;
-        background: #f8fbff;
-      }
+
       @media (max-width: 480px) {
-        body { padding: 16px; }
-        .card { padding: 28px 22px; border-radius: 18px; }
+        body {
+          padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+        }
+
+        .card {
+          padding: 24px 20px;
+        }
+
+        .card-header {
+          gap: 12px;
+        }
+
+        h1 {
+          font-size: 20px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: .01ms !important;
+          animation-iteration-count: 1 !important;
+          scroll-behavior: auto !important;
+          transition-duration: .01ms !important;
+        }
       }
     </style>
   </head>
   <body>
     <main class="card">
-      <div class="logo" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-        </svg>
-      </div>
-      <h1>TG-GUARD ADMIN</h1>
+      <header class="card-header">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+        </div>
+        <div>
+          <p class="eyebrow">Authorization Ledger</p>
+          <h1>TG-GUARD ADMIN</h1>
+        </div>
+      </header>
       <p class="subtitle">仅授权群的管理员可登录，使用 Telegram 账号继续。</p>
 
       {% if error %}
-      <div class="error" role="alert">{{ error }}</div>
+      <div class="error" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 7v6M12 17h.01"></path>
+        </svg>
+        <span>{{ error }}</span>
+      </div>
       {% endif %}
 
       {% if enabled %}
-      <div class="login-area">
+      <section class="auth-section" aria-labelledby="auth-label">
+        <p class="section-label" id="auth-label">Telegram Authentication</p>
+        <div class="login-area">
+        <p class="login-fallback">
+          登录按钮来自 telegram.org。若这里一直空白，说明当前网络访问不到 Telegram，请更换网络后刷新页面。
+        </p>
         <script>
           // Telegram 已弃用 data-auth-url 重定向模式(点击后显示 "deprecated"),
           // 改用 data-onauth 回调:在浏览器侧拿到登录数据后拼接查询串跳转回调,
@@ -220,11 +307,12 @@
           src="https://telegram.org/js/telegram-widget.js?22"
           data-telegram-login="{{ bot_username }}"
           data-size="large"
-          data-radius="10"
+          data-radius="5"
           data-onauth="onTelegramAuth(user)"
           data-request-access="write"
         ></script>
-      </div>
+        </div>
+      </section>
       {% else %}
       <p class="disabled-message">
         后台暂未启用，请联系运维确认 <code>ADMIN_WEB_ENABLED</code> 与
