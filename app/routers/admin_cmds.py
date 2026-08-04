@@ -14,6 +14,7 @@ from ..bot_components.constants import ADMIN_STATUSES
 from ..bot_components.messaging import send_message_with_ttl, schedule_message_auto_delete
 from ..bot_components.permissions import (
     is_authorized_admin,
+    is_authorized_chat,
     resolve_target_member,
     resolve_target_user,
 )
@@ -63,6 +64,44 @@ def build_admin_commands_router(services: BotServices) -> Router:
                 exc_info=True,
             )
 
+    async def _deny_unauthorized_chat(message: Message, bot: Bot) -> bool:
+        """群不在白名单时发提示并返回 True。
+
+        带上群 ID:未授权群里 /id 也被拒,不给出 ID 的话管理员根本无从知道该往
+        ALLOWED_CHAT_IDS 里填什么——查群 ID 正是 /id 的用途。
+        """
+        if is_authorized_chat(settings, message.chat):
+            return False
+        await send_message_with_ttl(
+            bot,
+            chat_id=message.chat.id,
+            text=(
+                "⚠️ 本群未授权使用本机器人。\n"
+                f"群组 ID：{message.chat.id}\n"
+                "如需启用，请把该 ID 加入 ALLOWED_CHAT_IDS。"
+            ),
+            ttl=settings.message_ttl_seconds,
+        )
+        return True
+
+    async def _deny_non_admin(message: Message, bot: Bot, command: str) -> bool:
+        """群未授权或发起人不是管理员时发对应提示并返回 True。
+
+        两种原因分开说:合并成一句"仅管理员可以使用"时,管理员会反复确认自己的
+        身份,却查不出真正的原因是这个群没授权。
+        """
+        if await _deny_unauthorized_chat(message, bot):
+            return True
+        if await is_authorized_admin(bot, settings, message):
+            return False
+        await send_message_with_ttl(
+            bot,
+            chat_id=message.chat.id,
+            text=f"⚠️ 仅管理员可以使用 {command} 命令。",
+            ttl=settings.message_ttl_seconds,
+        )
+        return True
+
     @router.message(Command("id"))
     async def handle_id_command(message: Message, bot: Bot) -> None:
         schedule_message_auto_delete(bot, message, settings.message_ttl_seconds)
@@ -75,13 +114,8 @@ def build_admin_commands_router(services: BotServices) -> Router:
                 ttl=settings.message_ttl_seconds,
             )
             return
-        if not await is_authorized_admin(bot, settings, message):
-            await send_message_with_ttl(
-                bot,
-                chat_id=message.chat.id,
-                text="⚠️ 仅管理员可以使用 /id 命令。",
-                ttl=settings.message_ttl_seconds,
-            )
+        # /id 是纯查询,不改任何状态,群成员都能用;白名单仍然拦。
+        if await _deny_unauthorized_chat(message, bot):
             return
 
         target_user = None
@@ -144,13 +178,8 @@ def build_admin_commands_router(services: BotServices) -> Router:
                 ttl=settings.message_ttl_seconds,
             )
             return
-        if not await is_authorized_admin(bot, settings, message):
-            await send_message_with_ttl(
-                bot,
-                chat_id=chat.id,
-                text="⚠️ 仅管理员可以使用 /re 命令。",
-                ttl=settings.message_ttl_seconds,
-            )
+        # 顶帖是群成员的日常需求,不限管理员;白名单仍然拦。
+        if await _deny_unauthorized_chat(message, bot):
             return
         if message.reply_to_message is None:
             await send_message_with_ttl(
@@ -220,13 +249,7 @@ def build_admin_commands_router(services: BotServices) -> Router:
                 ttl=settings.message_ttl_seconds,
             )
             return
-        if not await is_authorized_admin(bot, settings, message):
-            await send_message_with_ttl(
-                bot,
-                chat_id=chat.id,
-                text="⚠️ 仅管理员可以使用 /warn 命令。",
-                ttl=settings.message_ttl_seconds,
-            )
+        if await _deny_non_admin(message, bot, "/warn"):
             return
         if message.reply_to_message is None or message.reply_to_message.from_user is None:
             await send_message_with_ttl(
@@ -327,15 +350,19 @@ def build_admin_commands_router(services: BotServices) -> Router:
     @router.message(Command("sb"))
     async def handle_sb_command(message: Message, bot: Bot) -> None:
         schedule_message_auto_delete(bot, message, settings.message_ttl_seconds)
-        if message.reply_to_message is None:
-            return
-        if not await is_authorized_admin(bot, settings, message):
+        # 其余五个指令都有这道守卫,只有 /sb 漏了。它后面全程对 message.chat.id
+        # 执行封禁,私聊里本来就跑不通,只是以前静默失败而已。
+        if message.chat.type not in {"group", "supergroup"}:
             await send_message_with_ttl(
                 bot,
                 chat_id=message.chat.id,
-                text="⚠️ 仅管理员可以使用 /sb 命令。",
+                text="⚠️ 请在群聊中使用 /sb 命令。",
                 ttl=settings.message_ttl_seconds,
             )
+            return
+        if message.reply_to_message is None:
+            return
+        if await _deny_non_admin(message, bot, "/sb"):
             return
 
         target_message = message.reply_to_message
@@ -439,13 +466,7 @@ def build_admin_commands_router(services: BotServices) -> Router:
                 ttl=settings.message_ttl_seconds,
             )
             return
-        if not await is_authorized_admin(bot, settings, message):
-            await send_message_with_ttl(
-                bot,
-                chat_id=message.chat.id,
-                text="⚠️ 仅管理员可以使用 /ban 命令。",
-                ttl=settings.message_ttl_seconds,
-            )
+        if await _deny_non_admin(message, bot, "/ban"):
             return
 
         target_member = await resolve_target_member(message, bot)
@@ -541,13 +562,7 @@ def build_admin_commands_router(services: BotServices) -> Router:
                 ttl=settings.message_ttl_seconds,
             )
             return
-        if not await is_authorized_admin(bot, settings, message):
-            await send_message_with_ttl(
-                bot,
-                chat_id=message.chat.id,
-                text="⚠️ 仅管理员可以使用 /unban 命令。",
-                ttl=settings.message_ttl_seconds,
-            )
+        if await _deny_non_admin(message, bot, "/unban"):
             return
 
         target_member = await resolve_target_member(message, bot)

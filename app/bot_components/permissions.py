@@ -15,6 +15,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def is_authorized_chat(settings: "Settings", chat) -> bool:
+    """群是否在白名单内。
+
+    授权模型与 verify.py 的入群处理一致:配置了白名单时,非授权群一律拒绝
+    (机器人被拉进未授权群时,该群管理员不能用 admin 指令操作成员/写共享存储);
+    未配置白名单为开放模式。
+    """
+    if chat.type not in {"group", "supergroup"}:
+        return False
+    return not settings.allowed_chat_ids or chat.id in settings.allowed_chat_ids
+
+
 async def is_authorized_admin(bot: Bot, settings: "Settings", message: Message) -> bool:
     user = message.from_user
     if user is None:
@@ -22,16 +34,29 @@ async def is_authorized_admin(bot: Bot, settings: "Settings", message: Message) 
 
     chat = message.chat
     if chat.type in {"group", "supergroup"}:
-        # 授权模型与 verify.py 的入群处理一致:配置了白名单时,
-        # 非授权群一律拒绝(机器人被拉进未授权群时,该群管理员不能
-        # 用 admin 指令操作成员/写共享存储);未配置白名单为开放模式
-        if settings.allowed_chat_ids and chat.id not in settings.allowed_chat_ids:
+        # 三种拒绝原因在群里的现象一模一样,不记日志就只能靠猜
+        if not is_authorized_chat(settings, chat):
+            logger.info("管理指令被拒:群未授权 chat_id=%s user_id=%s", chat.id, user.id)
             return False
         try:
             member = await bot.get_chat_member(chat.id, user.id)
-        except (TelegramBadRequest, TelegramForbiddenError):
+        except (TelegramBadRequest, TelegramForbiddenError) as exc:
+            logger.info(
+                "管理指令被拒:查询成员失败 chat_id=%s user_id=%s error=%s",
+                chat.id,
+                user.id,
+                exc,
+            )
             return False
-        return member.status in ADMIN_STATUSES
+        if member.status not in ADMIN_STATUSES:
+            logger.info(
+                "管理指令被拒:身份不足 chat_id=%s user_id=%s status=%s",
+                chat.id,
+                user.id,
+                member.status,
+            )
+            return False
+        return True
 
     if not settings.allowed_chat_ids:
         return False
@@ -130,5 +155,10 @@ async def resolve_target_member(message: Message, bot: Bot) -> Optional[ChatMemb
     return None
 
 
-__all__ = ["is_authorized_admin", "resolve_target_user", "resolve_target_member"]
+__all__ = [
+    "is_authorized_admin",
+    "is_authorized_chat",
+    "resolve_target_user",
+    "resolve_target_member",
+]
 
