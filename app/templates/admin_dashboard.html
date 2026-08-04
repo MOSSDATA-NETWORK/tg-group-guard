@@ -732,11 +732,44 @@
 
       /* align-items:start —— 不加的话同一行的卡片会被最高的那张拉平，
          「入群验证」6 项会被广告守卫的 17 项撑出上千像素空白。 */
-      .settings-grid {
-        display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-        gap: 16px; align-items: start;
+      /* 一次只显示一组。九组字段数差 17 倍（广告守卫 17 项、网络与代理 1 项），
+         并排铺开时行高由最高的卡片决定，矮卡片下方会空出上千像素。 */
+      #settings-panel { --nav-w: 196px; --shell-gap: 20px; --col-w: 760px; }
+      .settings-shell {
+        display: grid; grid-template-columns: var(--nav-w) minmax(0, 1fr);
+        gap: var(--shell-gap); align-items: start; margin-top: 16px;
       }
-      .settings-group { padding: 16px; }
+      .settings-grid { max-width: var(--col-w); }
+      /* 按群配置和危险操作不属于任何分组，但要跟分组卡片同在内容列里：
+         放到 shell 外面的话，切到只有一项的组时 grid 行高被目录撑住，
+         这两块会被推开两百多像素。 */
+      .settings-tail { max-width: var(--col-w); }
+      .settings-group { padding: 16px; margin-bottom: 16px; }
+      .settings-group.is-off { display: none; }
+
+      .group-nav {
+        position: sticky; top: calc(var(--hdr) + 62px);
+        display: flex; flex-direction: column; gap: 2px;
+      }
+      .gnav-item {
+        display: flex; align-items: center; gap: 8px; width: 100%;
+        padding: 8px 10px; min-height: var(--ctl); text-align: left;
+        border: 0; background: transparent; border-radius: 7px;
+        font-size: 12.5px; color: var(--ink-2);
+      }
+      .gnav-item:hover { background: var(--surface-2); color: var(--ink); }
+      .gnav-item.on {
+        background: var(--surface-2); color: var(--ink); font-weight: 600;
+        box-shadow: inset 2px 0 0 var(--accent);
+      }
+      .gnav-name { flex: 1; min-width: 0; }
+      .gnav-n { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+      /* 一次只看得见一组，其他组改了几项全靠这个徽章，否则保存时是瞎的 */
+      .gnav-dirty {
+        font-size: 11px; font-weight: 600; color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 13%, transparent);
+        border-radius: 999px; padding: 1px 7px; font-variant-numeric: tabular-nums;
+      }
       .settings-group h3 { font-size: 13.5px; margin-bottom: 4px; display: flex; align-items: center; gap: 7px; }
       .group-sub { font-size: 12px; color: var(--ink-3); line-height: 1.65; margin-bottom: 14px; }
       .settings-fields { display: flex; flex-direction: column; gap: 14px; }
@@ -951,6 +984,18 @@
         .settings-bar { top: calc(var(--hdr) + 47px); }
         .panel-head { align-items: flex-start; }
         thead th { top: 0; }
+        /* 分组目录竖排会吃掉半屏，横过来滚动 */
+        .settings-shell { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+        .group-nav {
+          position: static; flex-direction: row; gap: 6px;
+          overflow-x: auto; scrollbar-width: none; padding-bottom: 2px;
+        }
+        .group-nav::-webkit-scrollbar { display: none; }
+        .gnav-item {
+          width: auto; flex: 0 0 auto; white-space: nowrap;
+          border: 1px solid var(--rule-2); min-height: var(--tap);
+        }
+        .gnav-item.on { box-shadow: none; border-color: var(--accent); }
       }
       @media (max-width: 640px) {
         .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1467,10 +1512,13 @@
             <pre class="update-log" id="update-log" hidden></pre>
           </div>
 
-          <div class="settings-grid" id="settings-groups" style="margin-top:16px;"></div>
-          <div class="settings-empty" id="settings-none" role="status" hidden></div>
+          <div class="settings-shell">
+            <nav class="group-nav" id="settings-nav" aria-label="设置分组"></nav>
+            <div>
+              <div class="settings-grid" id="settings-groups"></div>
+              <div class="settings-empty" id="settings-none" role="status" hidden></div>
 
-          <div class="card settings-group" style="margin-top:16px;">
+          <div class="card settings-group settings-tail" style="margin-top:16px;">
             <h3>按群差异化配置</h3>
             <p class="group-sub">对单个群覆盖下列关键参数，未覆盖的项跟随上方全局配置，保存后立即生效。</p>
             <div class="kw-toolbar" style="margin-bottom:14px;">
@@ -1494,11 +1542,13 @@
             </div>
           </div>
 
-          <div class="card settings-group is-danger" style="margin-top:16px;">
+          <div class="card settings-group is-danger settings-tail" style="margin-top:16px;">
             <h3 class="danger-title">危险操作</h3>
             <p class="group-sub">关停后整个机器人与后台都会停止运行，只能到服务器上手动启动；若使用 systemd/pm2 守护，进程可能被自动拉起。</p>
             <div class="version-actions">
               <button type="button" class="danger" id="shutdown-btn">关停服务</button>
+            </div>
+          </div>
             </div>
           </div>
 
@@ -2864,6 +2914,7 @@
               <h3>${esc(g.name)}<span class="dirty-count" hidden></span></h3>
               <div class="settings-fields">${g.fields.map(settingInputHtml).join('')}</div>
             </div>`).join('');
+          renderGroupNav(data.groups || []);
           markFormClean('settings');
           markSettingsClean();
           refreshAdGuardHint();
@@ -2872,6 +2923,36 @@
         } finally {
           setSettingsBusy(false);
         }
+      }
+
+      // 一次只显示一组，当前组跨重载保留——否则每次保存完都跳回第一组。
+      // 记的是组名不是下标：服务可以在页面里"更新并重启"，重启后分组的顺序或
+      // 数量一旦变过，按下标会不声不响地切到另一个组去。
+      let activeGroupName = null;
+      let activeGroup = 0;
+
+      function renderGroupNav(groups) {
+        const keep = groups.findIndex((g) => g.name === activeGroupName);
+        activeGroup = keep >= 0 ? keep : 0;
+        activeGroupName = groups.length ? groups[activeGroup].name : null;
+        document.getElementById('settings-nav').innerHTML = groups.map((g, i) => `
+          <button type="button" class="gnav-item${i === activeGroup ? ' on' : ''}" data-idx="${i}"
+            data-name="${esc(g.name)}" aria-current="${i === activeGroup ? 'true' : 'false'}">
+            <span class="gnav-name">${esc(g.name)}</span>
+            <span class="gnav-n">${g.fields.length}</span>
+            <span class="gnav-dirty" hidden></span>
+          </button>`).join('');
+      }
+
+      function showGroup(idx) {
+        activeGroup = idx;
+        document.querySelectorAll('#settings-nav .gnav-item').forEach((b, i) => {
+          const on = i === idx;
+          b.classList.toggle('on', on);
+          b.setAttribute('aria-current', on ? 'true' : 'false');
+          if (on) activeGroupName = b.dataset.name;
+        });
+        applySettingsFilter();
       }
 
       // 逐项脏值：整体快照（formSnapshot.settings）只能回答"有没有改动",
@@ -2889,7 +2970,8 @@
 
       function refreshSettingsDirty() {
         let total = 0;
-        document.querySelectorAll('#settings-groups .settings-group').forEach((card) => {
+        const navItems = document.querySelectorAll('#settings-nav .gnav-item');
+        document.querySelectorAll('#settings-groups .settings-group').forEach((card, i) => {
           let n = 0;
           card.querySelectorAll('.setting-item').forEach((item) => {
             const el = item.querySelector('[data-key]');
@@ -2900,6 +2982,13 @@
           });
           const chip = card.querySelector('.dirty-count');
           if (chip) { chip.textContent = `${n} 项已改`; chip.hidden = n === 0; }
+          // 屏幕上只看得见一组，别组的改动只能靠目录上的徽章暴露
+          const badge = navItems[i] ? navItems[i].querySelector('.gnav-dirty') : null;
+          if (badge) {
+            badge.textContent = n;
+            badge.hidden = n === 0;
+            badge.setAttribute('aria-label', `${n} 项待保存`);
+          }
           total += n;
         });
         const status = document.getElementById('settings-status');
@@ -2939,8 +3028,12 @@
       function applySettingsFilter() {
         const q = document.getElementById('settings-filter').value.trim().toLowerCase();
         const dirtyOnly = document.getElementById('settings-dirty-only').checked;
+        // 搜索和"仅看已修改"都是全局意图：只在当前组里找会漏掉别组的命中，
+        // 所以一有过滤条件就跨组显示，条件清空再回到单组模式。
+        const cross = !!(q || dirtyOnly);
         let shown = 0;
-        document.querySelectorAll('#settings-groups .settings-group').forEach((card) => {
+        const navItems = document.querySelectorAll('#settings-nav .gnav-item');
+        document.querySelectorAll('#settings-groups .settings-group').forEach((card, i) => {
           let n = 0;
           card.querySelectorAll('.setting-item').forEach((item) => {
             const ok = (!q || (item.dataset.search || '').includes(q))
@@ -2948,11 +3041,12 @@
             item.hidden = !ok;
             if (ok) n += 1;
           });
-          card.hidden = n === 0;
+          card.classList.toggle('is-off', cross ? n === 0 : i !== activeGroup);
+          if (navItems[i]) navItems[i].hidden = cross && n === 0;
           shown += n;
         });
         const none = document.getElementById('settings-none');
-        none.hidden = shown > 0 || !(q || dirtyOnly);
+        none.hidden = shown > 0 || !cross;
         none.textContent = dirtyOnly && !q ? '当前没有已修改的设置项。' : '没有匹配的设置项。';
       }
 
@@ -3007,7 +3101,10 @@
           // 出错项可能正被搜索条件藏着，先把过滤清掉再定位过去
           document.getElementById('settings-filter').value = '';
           document.getElementById('settings-dirty-only').checked = false;
-          applySettingsFilter();
+          // 清掉过滤就回到单组模式，出错项要是在别的组会整组被藏起来，得先切过去
+          const cards = Array.from(document.querySelectorAll('#settings-groups .settings-group'));
+          const idx = cards.indexOf(first.item.closest('.settings-group'));
+          if (idx >= 0) showGroup(idx); else applySettingsFilter();
           first.el.focus({ preventScroll: true });
           first.item.scrollIntoView({ block: 'center' });
         }
@@ -3534,6 +3631,19 @@
       });
       document.getElementById('settings-filter').addEventListener('input', applySettingsFilter);
       document.getElementById('settings-dirty-only').addEventListener('change', applySettingsFilter);
+      // 目录是 loadSettings 动态渲染的，绑在容器上
+      document.getElementById('settings-nav').addEventListener('click', (e) => {
+        const btn = e.target.closest('.gnav-item');
+        if (!btn) return;
+        showGroup(Number(btn.dataset.idx));
+        // 从长组切到短组时视口可能还停在很下面，把新组的开头带回视野。
+        // 吸顶栏贴住时它的下边缘就是内容该开始的位置。
+        const shell = document.querySelector('.settings-shell');
+        const bar = document.querySelector('.settings-bar');
+        const offset = Math.max(0, bar.getBoundingClientRect().bottom) + 12;
+        const top = shell.getBoundingClientRect().top + window.scrollY - offset;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      });
       document.getElementById('ver-check').addEventListener('click', checkVersionNow);
       document.getElementById('ver-update').addEventListener('click', startUpdate);
       document.getElementById('restart-now').addEventListener('click', restartNow);
