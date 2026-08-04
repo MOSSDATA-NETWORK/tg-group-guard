@@ -256,6 +256,91 @@ async def _check_advertisement_openai(
     return (flagged, confidence)
 
 
+class ModelProbeError(Exception):
+    """拉取模型列表失败。message 会原样显示给后台管理员，要写成人话。"""
+
+
+# 列目录几秒就该回。复用 OPENAI_TIMEOUT_SECONDS 会让一个打不开的端点
+# 把后台按钮卡上好几分钟——那个超时是留给推理的。
+_MODEL_PROBE_TIMEOUT_SECONDS = 15
+# OneAPI 这类聚合网关能返回上千个模型，全塞进下拉框会把页面拖垮
+_MODEL_PROBE_LIMIT = 500
+# 端点是管理员随手填的，填错时对面可能是任何服务。不设上限地整个读进内存，
+# 一个指向大文件或日志流的地址就能把 bot 进程撑爆。上千个模型也就几百 KB。
+_MODEL_PROBE_MAX_BYTES = 2 * 1024 * 1024
+
+
+def _brief(text: str, limit: int = 160) -> str:
+    cleaned = " ".join(text.split())
+    return (cleaned[:limit] + "…") if len(cleaned) > limit else cleaned
+
+
+def _extract_model_ids(data: Any) -> list[str]:
+    """OpenAI 官方是 {"data": [{"id": ...}]}；部分聚合网关直接返回数组或用 name。"""
+    items = data.get("data") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        raise ModelProbeError("响应里找不到模型列表，请确认端点是否为 OpenAI 兼容根路径")
+    ids: list[str] = []
+    for item in items:
+        raw = (item.get("id") or item.get("name")) if isinstance(item, dict) else item
+        if isinstance(raw, str) and raw.strip():
+            ids.append(raw.strip())
+    if not ids:
+        raise ModelProbeError("端点没有返回任何模型")
+    return sorted(set(ids))[:_MODEL_PROBE_LIMIT]
+
+
+async def list_openai_models(
+    endpoint: Optional[str],
+    api_key: Optional[str],
+) -> list[str]:
+    """向 OpenAI 兼容端点要一份可用模型清单，供后台「获取」按钮使用。"""
+    if not api_key:
+        raise ModelProbeError("未配置 OpenAI API Key")
+    base = endpoint.rstrip("/") if endpoint else _OFFICIAL_OPENAI_ENDPOINT
+    if not base.startswith(("http://", "https://")):
+        raise ModelProbeError("端点必须以 http:// 或 https:// 开头")
+
+    url = f"{base}/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    timeout = aiohttp.ClientTimeout(total=_MODEL_PROBE_TIMEOUT_SECONDS)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers) as resp:
+                # 不能用 resp.text()：它会把整个响应读进内存，没有上限。
+                # 这里边读边数，超了立刻断开。
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in resp.content.iter_chunked(65536):
+                    size += len(chunk)
+                    if size > _MODEL_PROBE_MAX_BYTES:
+                        raise ModelProbeError(
+                            "端点返回的内容过大，请确认地址是否为 OpenAI 兼容根路径"
+                        )
+                    chunks.append(chunk)
+                # 二进制服务的响应解出来是替换字符，后面 json.loads 会挡住
+                body = b"".join(chunks).decode("utf-8", errors="replace")
+                if resp.status != 200:
+                    logger.warning(
+                        "拉取模型列表失败 status=%s url=%s body=%s",
+                        resp.status,
+                        url,
+                        _brief(body, 500),
+                    )
+                    raise ModelProbeError(f"端点返回 {resp.status}：{_brief(body)}")
+                data = json.loads(body)
+    except asyncio.TimeoutError as exc:
+        raise ModelProbeError(f"请求超时（{_MODEL_PROBE_TIMEOUT_SECONDS} 秒）") from exc
+    except aiohttp.ClientError as exc:
+        raise ModelProbeError(f"无法连接端点：{exc}") from exc
+    # 捕 ValueError 而不是 JSONDecodeError：解码兜底改成 errors="replace" 之后
+    # 走的仍是 JSON 解析失败，但留宽一档，免得哪天换回严格解码就漏出去变成 500，
+    # 管理员那边只能看到一句"服务器错误"。
+    except ValueError as exc:
+        raise ModelProbeError("端点返回的不是 JSON，请确认地址是否为 OpenAI 兼容根路径") from exc
+    return _extract_model_ids(data)
+
+
 def _parse_json_response(response_text: str) -> Optional[Dict[str, Any]]:
     text = response_text.strip()
     if not text:
@@ -309,5 +394,7 @@ def _parse_fallback(response_text: str) -> Optional[Dict[str, Any]]:
 __all__ = [
     "heuristic_detect_advertisement",
     "check_advertisement",
+    "list_openai_models",
+    "ModelProbeError",
 ]
 

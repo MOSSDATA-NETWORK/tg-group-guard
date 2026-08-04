@@ -785,6 +785,13 @@
         color: var(--warn);
       }
       .setting-help.is-warn svg { width: 13px; height: 13px; flex: none; margin-top: 2px; }
+      .setting-help.is-bad { color: var(--danger); }
+      .setting-help.is-note { color: var(--warn); }
+      /* 模型名手敲错一个字符，广告判定就一直静默失败，只有日志里看得见。
+         这一行把输入框和「获取」并排，按钮直接从端点拉真实的模型清单。 */
+      .setting-row { display: flex; gap: 8px; align-items: center; }
+      .setting-row input { flex: 1; min-width: 0; }
+      .setting-row button { flex: none; }
       /* .setting-item 已经是 flex column，这里必须显式改回 row，
          否则复选框会被叠到标签上方并居中。 */
       .setting-check { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; min-height: var(--ctl); }
@@ -2874,12 +2881,71 @@
           const type = (f.kind === 'int' || f.kind === 'float') ? 'number' : 'text';
           const step = f.kind === 'float' ? ' step="0.05"' : '';
           const ph = f.nullable ? ' placeholder="留空表示不启用 / 不设置"' : '';
-          input = `<input type="${type}"${step} id="${id}" data-key="${f.key}" value="${esc(f.value)}"${ph} />`;
+          // 模型名不给候选就只能照着文档手敲，敲错了广告判定会一直静默失败
+          const pick = f.key === 'OPENAI_MODEL';
+          input = `<input type="${type}"${step} id="${id}" data-key="${f.key}" value="${esc(f.value)}"${ph}${pick ? ' list="openai-models"' : ''} />`;
+          if (pick) {
+            input = `<div class="setting-row">${input}
+              <button type="button" id="probe-models">获取模型</button>
+            </div>
+            <datalist id="openai-models"></datalist>
+            <span class="setting-help" id="probe-hint" role="status" hidden></span>`;
+          }
         }
         return `<div class="setting-item" data-search="${hay}">
           <label for="${id}" class="setting-label">${esc(f.label)} ${badge}</label>
           ${input}${help}
         </div>`;
+      }
+
+      // 端点和密钥都取页面上正在编辑的值，可以先试通再决定保不保存。
+      // 密钥前端拿不到明文（后端从不下发），留空时后端会用已存的那把。
+      async function probeModels(btn) {
+        const hint = document.getElementById('probe-hint');
+        const input = document.querySelector('#settings-groups [data-key="OPENAI_MODEL"]');
+        const endpoint = document.querySelector('#settings-groups [data-key="OPENAI_ENDPOINT"]');
+        const apiKey = document.querySelector('#settings-groups [data-key="OPENAI_API_KEY"]');
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '获取中…';
+        hint.hidden = false;
+        hint.classList.remove('is-bad', 'is-note');
+        hint.textContent = '正在向端点拉取模型列表…';
+        try {
+          const res = await fetch('/admin/api/probe_models', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': getCookie(CSRF_COOKIE),
+            },
+            body: JSON.stringify({
+              endpoint: endpoint ? endpoint.value.trim() : '',
+              api_key: apiKey ? apiKey.value : '',
+            }),
+          });
+          if (res.status === 401) { location.href = '/admin/login'; return; }
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.detail || '获取失败');
+          const models = data.models || [];
+          document.getElementById('openai-models').innerHTML =
+            models.map((m) => `<option value="${esc(m)}"></option>`).join('');
+          // 拉列表是为了抓拼错的模型名。只给一串候选的话，用户看完还是不知道
+          // 自己填的那个到底对不对——直接点破。
+          const cur = input.value.trim();
+          const miss = cur && !models.includes(cur);
+          hint.classList.toggle('is-note', !!miss);
+          hint.textContent = miss
+            ? `已获取 ${models.length} 个模型，当前填的「${cur}」不在其中，请从候选里挑一个`
+            : `已获取 ${models.length} 个模型：清空输入框可看全部，输入关键词可筛选`;
+          input.focus();
+          input.select();
+        } catch (err) {
+          hint.classList.add('is-bad');
+          hint.textContent = err.message || '获取失败';
+        } finally {
+          btn.disabled = false;
+          btn.textContent = label;
+        }
       }
 
       let settingsBusy = false;
@@ -3628,6 +3694,9 @@
         refreshSettingsDirty();
         refreshAdGuardHint();
         if (document.getElementById('settings-dirty-only').checked) applySettingsFilter();
+      });
+      document.getElementById('settings-groups').addEventListener('click', (e) => {
+        if (e.target.closest('#probe-models')) probeModels(e.target.closest('#probe-models'));
       });
       document.getElementById('settings-filter').addEventListener('input', applySettingsFilter);
       document.getElementById('settings-dirty-only').addEventListener('change', applySettingsFilter);

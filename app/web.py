@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .bot_components.ad_guard import ModelProbeError, list_openai_models
 from .bot_components.constants import ADMIN_STATUSES
 from .bot_components.verification import (
     announce_group_success,
@@ -640,6 +641,37 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                 "restart_required": sorted(restart),
             }
         )
+
+    @app.post("/admin/api/probe_models")
+    async def admin_api_probe_models(request: Request) -> JSONResponse:
+        session = await _require_admin_session(request, api=True)
+        _require_csrf(request, session)
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="非法 JSON")
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="非法请求体")
+        # 端点取页面上正在编辑的值，这样能先试通再保存；
+        # 密钥前端拿不到明文（从不下发），留空就沿用已存的那把，
+        # 与 OPENAI_API_KEY "留空表示保持不变" 的语义一致。
+        raw_endpoint = payload.get("endpoint")
+        raw_key = payload.get("api_key")
+        endpoint = raw_endpoint.strip() if isinstance(raw_endpoint, str) else ""
+        api_key = raw_key.strip() if isinstance(raw_key, str) else ""
+        try:
+            models = await list_openai_models(
+                endpoint or settings.openai_endpoint,
+                api_key or settings.openai_api_key,
+            )
+        except ModelProbeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
+        logger.info(
+            "拉取模型列表 operator=%s count=%s", session.get("user_id"), len(models)
+        )
+        return JSONResponse({"models": models, "count": len(models)})
 
     @app.get("/admin/api/chat_settings")
     async def admin_api_chat_settings_get(
