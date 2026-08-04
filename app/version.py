@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 
 _DEFAULT_REPO = "MOSSDATA-NETWORK/tg-group-guard"
 
