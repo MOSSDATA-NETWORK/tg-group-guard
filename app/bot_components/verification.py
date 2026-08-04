@@ -8,7 +8,7 @@ from html import escape
 from typing import Optional
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, User
 
 from ..config import Settings
@@ -411,11 +411,27 @@ async def notify_verification_success(bot: Bot, record: VerificationRecord) -> N
     _ = (bot, record)
 
 
-def _mention_html(user_id: int, username: Optional[str]) -> str:
-    """有 username 用原生 @mention；否则退回 tg://user?id=（受对方隐私设置影响）。"""
-    if username:
-        return f"@{escape(username.lstrip('@'))}"
-    return f'<a href="tg://user?id={user_id}">{user_id}</a>'
+async def _mention_html(bot: Bot, chat_id: int, user_id: int, username: Optional[str]) -> str:
+    """统一成 tg://user 链接 + 昵称，跟 /ban、/warn 那些消息一致。
+
+    昵称只能现查：verifications 表里只有 username 没有昵称。
+    也不拿 username 当链接——对方改名或取消用户名后那种提及就失效了，
+    而 user_id 是永久的。
+    """
+    name: Optional[str] = None
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        if member.user is not None:
+            name = member.user.full_name or member.user.username
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        logger.debug(
+            "取验证通过者昵称失败，回退到入库时的用户名 chat_id=%s user_id=%s error=%s",
+            chat_id,
+            user_id,
+            exc,
+        )
+    label = name or (username.lstrip("@") if username else None) or str(user_id)
+    return f'<a href="tg://user?id={user_id}">{escape(label)}</a>'
 
 
 async def announce_group_success(
@@ -423,7 +439,8 @@ async def announce_group_success(
     record: VerificationRecord,
     ttl: Optional[int],
 ) -> None:
-    message = f"✅ {_mention_html(record.user_id, record.username)} 已完成验证，欢迎正式加入！"
+    mention = await _mention_html(bot, record.chat_id, record.user_id, record.username)
+    message = f"✅ {mention} 已完成验证，欢迎正式加入！"
     try:
         await send_message_with_ttl(
             bot,
