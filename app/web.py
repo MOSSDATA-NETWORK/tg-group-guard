@@ -387,20 +387,39 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="解封失败，请稍后重试",
             ) from exc
-        except TelegramForbiddenError:
+        except TelegramForbiddenError as exc:
+            logger.warning(
+                "解封被拒 chat_id=%s user_id=%s operator=%s error=%r",
+                chat_id,
+                user_id,
+                session.get("user_id"),
+                exc,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="机器人无相关群权限",
-            )
+            ) from exc
 
-        await store.mark_unbanned(
-            chat_id,
-            user_id,
-            operator_id=int(session["user_id"]),
-            operator_name=session["name"],
-            display_name=str(user_id),
-            reason="web_unban",
-        )
+        # 到这里 Telegram 已经放人了，后面的记账再失败也不能让接口报错：
+        # 否则前端提示"解封失败"，用户会反复点，而人其实早就解开了。
+        # 与 /unban 命令的 _record_ban_event_safe 保持同样的处理。
+        try:
+            await store.mark_unbanned(
+                chat_id,
+                user_id,
+                operator_id=int(session["user_id"]),
+                operator_name=session["name"],
+                display_name=str(user_id),
+                reason="web_unban",
+            )
+        except Exception as exc:  # pragma: no cover - 记账失败不回滚已生效的解封
+            logger.warning(
+                "解封后写入封禁日志失败 chat_id=%s user_id=%s error=%r",
+                chat_id,
+                user_id,
+                exc,
+                exc_info=True,
+            )
 
         # 解封后清零违规分与合格进度，重新进群按新人再过前 N 次检测。
         score_manager = getattr(app.state, "score_manager", None)
@@ -414,17 +433,18 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                     user_id,
                     exc,
                 )
-        store = getattr(app.state, "store", None)
-        if store is not None:
-            try:
-                await store.reset_ad_qualification(chat_id, user_id)
-            except Exception as exc:  # pragma: no cover
-                logger.warning(
-                    "解封后重置合格状态失败 chat_id=%s user_id=%s error=%r",
-                    chat_id,
-                    user_id,
-                    exc,
-                )
+        # 这里曾经写成 store = getattr(app.state, "store", None)，
+        # 一个赋值就让 store 在整个函数里变成局部变量，上面的 mark_unbanned
+        # 直接 UnboundLocalError。store 是 create_web_app 的参数，直接用即可。
+        try:
+            await store.reset_ad_qualification(chat_id, user_id)
+        except Exception as exc:  # pragma: no cover
+            logger.warning(
+                "解封后重置合格状态失败 chat_id=%s user_id=%s error=%r",
+                chat_id,
+                user_id,
+                exc,
+            )
         return JSONResponse({"status": "ok"})
 
     @app.get("/admin/api/keyword_rules")
