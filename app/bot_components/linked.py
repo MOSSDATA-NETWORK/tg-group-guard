@@ -18,6 +18,14 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 logger = logging.getLogger(__name__)
 
+_enabled = True
+
+
+def configure_linked_sync(enabled: bool) -> None:
+    """配置是否同步封禁到关联频道，支持后台热更新。"""
+    global _enabled
+    _enabled = bool(enabled)
+
 
 async def sync_ban_to_linked_channel(
     bot: Bot,
@@ -32,6 +40,8 @@ async def sync_ban_to_linked_channel(
     unban_after=True 对应群组"踢出"语义(ban+unban),频道侧同步踢出;
     until_date 用于临时封禁,频道侧使用相同时长。
     """
+    if not _enabled:
+        return
     try:
         chat = await bot.get_chat(chat_id)
     except (TelegramBadRequest, TelegramForbiddenError) as exc:
@@ -70,4 +80,4 @@ async def sync_ban_to_linked_channel(
         )
 
 
-__all__ = ["sync_ban_to_linked_channel"]
+__all__ = ["configure_linked_sync", "sync_ban_to_linked_channel"]

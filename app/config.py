@@ -51,6 +51,8 @@ class Settings:
     ad_guard_include_bots: bool
     # 频道身份发言除了删除外,是否同时 ban_sender_chat 封禁该频道在本群发言
     ad_guard_ban_sender_chat: bool
+    # 群内封禁/踢出成功后是否同步到关联频道
+    sync_ban_to_linked_channel: bool
     openai_endpoint: Optional[str]
     openai_model: str
     openai_api_key: Optional[str]
@@ -246,6 +248,9 @@ def load_settings() -> Settings:
     ad_guard_ban = _read_bool(_read_env("AD_GUARD_BAN", "false"))
     ad_guard_include_bots = _read_bool(_read_env("AD_GUARD_INCLUDE_BOTS", "true"), True)
     ad_guard_ban_sender_chat = _read_bool(_read_env("AD_GUARD_BAN_SENDER_CHAT", "true"), True)
+    sync_ban_to_linked_channel = _read_bool(
+        _read_env("SYNC_BAN_TO_LINKED_CHANNEL", "true"), True
+    )
     # OpenAI 兼容端点;旧名 HUNYUAN_* 仍兼容读取,但优先用 OPENAI_*
     openai_endpoint = (
         _read_env("OPENAI_ENDPOINT", "") or _read_env("HUNYUAN_ENDPOINT", "")
@@ -341,6 +346,7 @@ def load_settings() -> Settings:
         ad_guard_ban=ad_guard_ban,
         ad_guard_include_bots=ad_guard_include_bots,
         ad_guard_ban_sender_chat=ad_guard_ban_sender_chat,
+        sync_ban_to_linked_channel=sync_ban_to_linked_channel,
         openai_endpoint=openai_endpoint,
         openai_model=openai_model,
         openai_api_key=openai_api_key,

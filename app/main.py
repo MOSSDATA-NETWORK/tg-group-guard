@@ -11,6 +11,7 @@ from aiogram.exceptions import TelegramNetworkError
 
 from .bot import create_bot, create_dispatcher
 from .bot_commands import sync_bot_commands
+from .bot_components.linked import configure_linked_sync
 from .bot_components.messaging import configure_messaging_store, restore_scheduled_deletions
 from .bot_components.scoring import RedisDailyScoreManager
 from .bot_components.verification import run_cleanup_scheduler
@@ -50,6 +51,7 @@ async def main() -> None:
     settings = load_settings()
     # 应用管理后台保存的运行时配置覆盖（data/admin_overrides.json）
     skipped_overrides = apply_overrides(settings)
+    configure_linked_sync(settings.sync_ban_to_linked_channel)
     if skipped_overrides:
         logger.warning("以下覆盖配置无效已被忽略：%s", ", ".join(skipped_overrides))
     level_name = settings.log_level.upper()

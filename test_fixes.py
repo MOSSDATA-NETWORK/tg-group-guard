@@ -1247,6 +1247,39 @@ async def test_sync_ban_to_linked_channel():
     print("PASS: 关联频道同步封禁(同步/踢出/时长/无频道/异常静默)正确")
 
 
+async def test_linked_sync_toggle():
+    """关联频道同步开关:关闭时不访问群信息,开启后恢复同步。"""
+    from types import SimpleNamespace as _SN
+
+    from app.bot_components.linked import configure_linked_sync, sync_ban_to_linked_channel
+
+    class _Bot:
+        def __init__(self):
+            self.get_chat_calls: list[int] = []
+            self.bans: list[tuple] = []
+
+        async def get_chat(self, chat_id):
+            self.get_chat_calls.append(chat_id)
+            return _SN(linked_chat_id=-300)
+
+        async def ban_chat_member(self, chat_id, user_id, until_date=None, **kw):
+            self.bans.append((chat_id, user_id, until_date))
+
+    try:
+        configure_linked_sync(False)
+        bot = _Bot()
+        await sync_ban_to_linked_channel(bot, -100, 42)
+        assert not bot.get_chat_calls and not bot.bans
+
+        configure_linked_sync(True)
+        await sync_ban_to_linked_channel(bot, -100, 42)
+        assert bot.get_chat_calls == [-100]
+        assert bot.bans == [(-300, 42, None)]
+    finally:
+        configure_linked_sync(True)
+    print("PASS: 关联频道同步封禁开关(关闭跳过/开启恢复)正确")
+
+
 async def test_ban_sender_chat_quiet():
     """频道身份封禁:成功调用 + 异常静默不阻断。"""
     from aiogram.exceptions import TelegramBadRequest
@@ -1308,6 +1341,7 @@ async def main():
     await test_low_score_ban_failure_rollback_and_cooldown()
     test_bot_message_ad_scan_gate()
     await test_sync_ban_to_linked_channel()
+    await test_linked_sync_toggle()
     await test_ban_sender_chat_quiet()
     print("\n全部回归验证通过")
 
