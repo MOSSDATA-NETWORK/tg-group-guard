@@ -80,6 +80,8 @@ FIELDS: tuple[FieldSpec, ...] = (
               "命中广告即封禁", "关闭时命中广告只踢出不封禁", False),
     FieldSpec("AD_GUARD_INCLUDE_BOTS", "ad_guard_include_bots", "bool", "广告守卫",
               "检测其他 bot 的消息", "开启后其他 bot 账号发的消息也纳入广告检测与关键词删除(广告号常用 bot 发广告绕过);自身消息始终豁免,关键词回复仍排除 bot 防死循环", False),
+    FieldSpec("AD_GUARD_BLOCK_SENDER_CHAT", "ad_guard_block_sender_chat", "bool", "广告守卫",
+              "禁止频道马甲发言", "开启后删除以频道身份发送的文本、媒体等消息;关联频道自动转发不受影响;关闭后频道消息进入正常广告检测", False),
     FieldSpec("AD_GUARD_BAN_SENDER_CHAT", "ad_guard_ban_sender_chat", "bool", "广告守卫",
               "封禁广告频道身份", "以频道身份发言被删除时,同步 ban_sender_chat 永久封禁该频道在本群发言;ban 用户封不住其频道身份,需此机制根治", False),
     FieldSpec("AD_GUARD_SCORE_SKIP_THRESHOLD", "ad_guard_score_skip_threshold", "int", "广告守卫",

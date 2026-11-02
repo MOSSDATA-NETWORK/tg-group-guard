@@ -65,6 +65,17 @@ def _should_skip_bot_message(message: Message, bot_id: int, include_bots: bool) 
     return not include_bots
 
 
+def _should_block_channel_sender_chat(message: Message, enabled: bool) -> bool:
+    """是否拦截频道马甲消息；关联频道自动转发始终放行。"""
+    sender_chat = message.sender_chat
+    return bool(
+        enabled
+        and sender_chat is not None
+        and sender_chat.type == "channel"
+        and not getattr(message, "is_automatic_forward", False)
+    )
+
+
 async def _ban_sender_chat_quiet(bot: Bot, chat_id: int, sender_chat_id: int) -> None:
     """封禁频道在本群的发言权;失败只记日志,不阻断删除流程。
 
@@ -811,7 +822,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
 
         sender_chat = message.sender_chat
         is_auto_forward = getattr(message, "is_automatic_forward", False)
-        if sender_chat and sender_chat.type == "channel" and not is_auto_forward:
+        if _should_block_channel_sender_chat(message, settings.ad_guard_block_sender_chat):
             logger.info(
                 "检测到频道身份发言，准备删除 chat_id=%s sender_chat_id=%s msg_id=%s",
                 message.chat.id,
@@ -906,7 +917,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
     async def handle_non_text_messages(message: Message, bot: Bot) -> None:
         sender_chat = message.sender_chat
         is_auto_forward = getattr(message, "is_automatic_forward", False)
-        if sender_chat and sender_chat.type == "channel" and not is_auto_forward:
+        if _should_block_channel_sender_chat(message, settings.ad_guard_block_sender_chat):
             logger.info(
                 "检测到频道身份非文本发言，准备删除 chat_id=%s sender_chat_id=%s msg_id=%s",
                 message.chat.id,

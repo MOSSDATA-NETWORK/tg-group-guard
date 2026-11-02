@@ -1192,6 +1192,25 @@ def test_bot_message_ad_scan_gate():
     print("PASS: bot 消息广告检测门控(纳入/自身豁免/开关回退)正确")
 
 
+def test_channel_sender_chat_block_gate():
+    """频道马甲开关:开启拦截频道身份,关闭放行,自动转发始终放行。"""
+    from types import SimpleNamespace as _SN
+
+    from app.routers.ad_guard import _should_block_channel_sender_chat
+
+    channel_message = _SN(sender_chat=_SN(type="channel"), is_automatic_forward=False)
+    auto_forward = _SN(sender_chat=_SN(type="channel"), is_automatic_forward=True)
+    group_identity = _SN(sender_chat=_SN(type="supergroup"), is_automatic_forward=False)
+    personal_message = _SN(sender_chat=None, is_automatic_forward=False)
+
+    assert _should_block_channel_sender_chat(channel_message, True) is True
+    assert _should_block_channel_sender_chat(channel_message, False) is False
+    assert _should_block_channel_sender_chat(auto_forward, True) is False
+    assert _should_block_channel_sender_chat(group_identity, True) is False
+    assert _should_block_channel_sender_chat(personal_message, True) is False
+    print("PASS: 禁止频道马甲发言开关(开关/自动转发/身份类型)正确")
+
+
 async def test_sync_ban_to_linked_channel():
     """关联频道同步封禁:有频道同步/踢出语义/临时时长/无频道跳过/异常静默。"""
     from types import SimpleNamespace as _SN
@@ -1340,6 +1359,7 @@ async def main():
     await test_prompt_record_failure_still_schedules_ttl()
     await test_low_score_ban_failure_rollback_and_cooldown()
     test_bot_message_ad_scan_gate()
+    test_channel_sender_chat_block_gate()
     await test_sync_ban_to_linked_channel()
     await test_linked_sync_toggle()
     await test_ban_sender_chat_quiet()
