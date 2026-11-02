@@ -33,8 +33,9 @@ class AdPipeline:
         content: str,
         *,
         message: Optional[Message] = None,
+        image: Optional[bytes] = None,
     ) -> Tuple[bool, Optional[float]]:
-        """对内容做 LLM 广告检测。
+        """对内容做 LLM 广告检测，可同时传入图片字节供多模态模型分析。
 
         - 用 Semaphore 限流并发,避免单进程打爆本地 Ollama
         - 失败时打 metric(如果有)
@@ -50,7 +51,7 @@ class AdPipeline:
             try:
                 chat_id = message.chat.id if message is not None else None
                 flagged, confidence = await check_advertisement(
-                    content, self._settings, chat_id=chat_id
+                    content, self._settings, chat_id=chat_id, image=image
                 )
             finally:
                 elapsed = time.monotonic() - start

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -69,6 +70,7 @@ async def check_advertisement(
     content: str,
     settings: "Settings",
     chat_id: Optional[int] = None,
+    image: Optional[bytes] = None,
 ) -> Tuple[bool, Optional[float]]:
     if chat_id is not None:
         if not resolve_chat(settings, chat_id, "ad_guard_enabled"):
@@ -77,8 +79,12 @@ async def check_advertisement(
         return (False, None)
     provider = getattr(settings, "ad_guard_provider", "ollama")
     if provider == "openai":
-        return await _check_advertisement_openai(content, settings, chat_id=chat_id)
-    return await _check_advertisement_ollama(content, settings, chat_id=chat_id)
+        return await _check_advertisement_openai(
+            content, settings, chat_id=chat_id, image=image
+        )
+    return await _check_advertisement_ollama(
+        content, settings, chat_id=chat_id, image=image
+    )
 
 
 def _effective_threshold(settings: "Settings", chat_id: Optional[int]) -> float:
@@ -91,6 +97,7 @@ async def _check_advertisement_ollama(
     content: str,
     settings: "Settings",
     chat_id: Optional[int] = None,
+    image: Optional[bytes] = None,
 ) -> Tuple[bool, Optional[float]]:
     if not settings.ollama_endpoint:
         logger.warning("启用了 Ollama 守卫但未配置 OLLAMA_ENDPOINT")
@@ -110,6 +117,8 @@ async def _check_advertisement_ollama(
             "num_predict": 256,
         },
     }
+    if image is not None:
+        payload["images"] = [base64.b64encode(image).decode("ascii")]
 
     url = f"{settings.ollama_endpoint.rstrip('/')}/api/generate"
     timeout = aiohttp.ClientTimeout(total=settings.ollama_timeout_seconds)
@@ -167,6 +176,7 @@ async def _check_advertisement_openai(
     content: str,
     settings: "Settings",
     chat_id: Optional[int] = None,
+    image: Optional[bytes] = None,
 ) -> Tuple[bool, Optional[float]]:
     if not settings.openai_api_key:
         logger.warning("启用了 OpenAI 兼容守卫但未配置 OPENAI_API_KEY")
@@ -183,9 +193,19 @@ async def _check_advertisement_openai(
     prompt = render_prompt_message(content.strip())
     logger.debug("广告检测提示词 provider=openai length=%s\n%s", len(prompt), prompt)
 
+    content_payload = prompt
+    if image is not None:
+        encoded_image = base64.b64encode(image).decode("ascii")
+        content_payload = [
+            {"type": "text", "text": prompt},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"},
+            },
+        ]
     payload = {
         "model": settings.openai_model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": content_payload}],
         "enable_enhancement": True,
     }
     url = f"{base_url}/chat/completions"

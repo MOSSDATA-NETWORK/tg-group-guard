@@ -23,6 +23,7 @@ from ..bot_components.ad_guard import (
     check_advertisement,
     heuristic_detect_advertisement,
 )
+from ..bot_components.behavior import MessageBehaviorGuard
 from ..bot_components.constants import ADMIN_STATUSES
 from ..bot_components.history import (
     build_history_entry,
@@ -55,6 +56,19 @@ def _provider_label(provider: str) -> str:
 
 
 _REGISTERED_COMMANDS = frozenset(command.command for command in _BOT_COMMANDS)
+_BEHAVIOR_GUARD = MessageBehaviorGuard()
+_MAX_IMAGE_BYTES = 10 * 1024 * 1024
+_IMAGE_ONLY_PLACEHOLDER = "[图片消息，无文字说明；请结合图片判断是否存在广告、引流、诈骗等内容]"
+_SPECIAL_MESSAGE_LABELS = {
+    "contact_message_policy": "联系人",
+    "story_message_policy": "Story",
+    "voice_message_policy": "语音/音频",
+}
+_BEHAVIOR_NOTICE = {
+    "rate": "发送消息过于频繁，请稍后再试。",
+    "duplicate": "请勿在短时间内重复发送相同内容。",
+    "short_flood": "请勿连续发送大量短消息。",
+}
 
 
 def _is_registered_command_text(text: str) -> bool:
@@ -77,7 +91,7 @@ def _should_count_valid_speech(
 
 
 def _extract_message_ad_text(message: Message) -> str:
-    """提取供广告检测的文本、隐藏链接及结构化消息内容。"""
+    """提取正文、隐藏链接，以及回复/引用中实际可获取的结构化内容。"""
     parts: list[str] = []
     seen: set[str] = set()
 
@@ -93,35 +107,53 @@ def _extract_message_ad_text(message: Message) -> str:
         for entity in entities or ():
             _add(getattr(entity, "url", None))
 
-    _add(getattr(message, "text", None))
-    _add(getattr(message, "caption", None))
-    _add_entity_urls(getattr(message, "entities", None))
-    _add_entity_urls(getattr(message, "caption_entities", None))
+    def _add_structured_content(source) -> None:
+        _add(getattr(source, "text", None))
+        _add(getattr(source, "caption", None))
+        _add_entity_urls(getattr(source, "entities", None))
+        _add_entity_urls(getattr(source, "caption_entities", None))
 
-    markup = getattr(message, "reply_markup", None)
-    for row in getattr(markup, "inline_keyboard", None) or ():
-        for button in row:
-            _add(getattr(button, "url", None))
-            _add(getattr(getattr(button, "login_url", None), "url", None))
-            _add(getattr(getattr(button, "web_app", None), "url", None))
+        markup = getattr(source, "reply_markup", None)
+        for row in getattr(markup, "inline_keyboard", None) or ():
+            for button in row:
+                _add(getattr(button, "url", None))
+                _add(getattr(getattr(button, "login_url", None), "url", None))
+                _add(getattr(getattr(button, "web_app", None), "url", None))
 
-    poll = getattr(message, "poll", None)
-    if poll is not None:
-        _add(getattr(poll, "question", None))
-        _add_entity_urls(getattr(poll, "question_entities", None))
-        for option in getattr(poll, "options", None) or ():
-            _add(getattr(option, "text", None))
-            _add_entity_urls(getattr(option, "text_entities", None))
-        _add(getattr(poll, "explanation", None))
-        _add_entity_urls(getattr(poll, "explanation_entities", None))
+        poll = getattr(source, "poll", None)
+        if poll is not None:
+            _add(getattr(poll, "question", None))
+            _add_entity_urls(getattr(poll, "question_entities", None))
+            for option in getattr(poll, "options", None) or ():
+                _add(getattr(option, "text", None))
+                _add_entity_urls(getattr(option, "text_entities", None))
+            _add(getattr(poll, "explanation", None))
+            _add_entity_urls(getattr(poll, "explanation_entities", None))
 
-    checklist = getattr(message, "checklist", None)
-    if checklist is not None:
-        _add(getattr(checklist, "title", None))
-        _add_entity_urls(getattr(checklist, "title_entities", None))
-        for task in getattr(checklist, "tasks", None) or ():
-            _add(getattr(task, "text", None))
-            _add_entity_urls(getattr(task, "text_entities", None))
+        checklist = getattr(source, "checklist", None)
+        if checklist is not None:
+            _add(getattr(checklist, "title", None))
+            _add_entity_urls(getattr(checklist, "title_entities", None))
+            for task in getattr(checklist, "tasks", None) or ():
+                _add(getattr(task, "text", None))
+                _add_entity_urls(getattr(task, "text_entities", None))
+
+    _add_structured_content(message)
+
+    quote = getattr(message, "quote", None)
+    if quote is not None:
+        _add(getattr(quote, "text", None))
+        _add_entity_urls(getattr(quote, "entities", None))
+
+    reply_to_message = getattr(message, "reply_to_message", None)
+    if reply_to_message is not None:
+        _add_structured_content(reply_to_message)
+
+    # ExternalReplyInfo 不提供外部原帖的完整正文；仅提取 Bot API 实际
+    # 返回的投票、清单等结构化字段，不能假定可以读取外部消息文本。
+    external_reply = getattr(message, "external_reply", None)
+    if external_reply is not None:
+        _add_structured_content(external_reply)
 
     return "\n".join(parts)
 
@@ -182,6 +214,101 @@ def _extract_media_payload(message: Message) -> tuple[Optional[str], Optional[st
     if message.voice:
         return "voice", message.voice.file_id
     return None, None
+
+
+def _is_user_forward_message(message: Message) -> bool:
+    """同时兼容旧版转发字段与 Bot API 7+ 的 forward_origin。"""
+    return any(
+        (
+            getattr(message, "forward_origin", None),
+            getattr(message, "forward_from", None),
+            getattr(message, "forward_from_chat", None),
+            getattr(message, "forward_sender_name", None),
+        )
+    )
+
+
+async def _download_message_image(bot: Bot, message: Message) -> Optional[bytes]:
+    """下载最大尺寸照片，超过 10 MiB 或下载失败时跳过，不阻断消息处理。"""
+    photos = getattr(message, "photo", None)
+    if not photos:
+        return None
+    photo = photos[-1]
+    if getattr(photo, "file_size", None) and photo.file_size > _MAX_IMAGE_BYTES:
+        logger.info("图片超过多模态检测大小限制 msg_id=%s size=%s", message.message_id, photo.file_size)
+        return None
+    try:
+        file = await bot.get_file(photo.file_id)
+        if getattr(file, "file_size", None) and file.file_size > _MAX_IMAGE_BYTES:
+            logger.info("图片超过多模态检测大小限制 msg_id=%s size=%s", message.message_id, file.file_size)
+            return None
+        downloaded = await bot.download_file(file.file_path)
+        data = downloaded.read()
+        if len(data) > _MAX_IMAGE_BYTES:
+            logger.info("下载后的图片超过多模态检测大小限制 msg_id=%s", message.message_id)
+            return None
+        return data
+    except Exception as exc:
+        logger.warning("下载图片用于广告检测失败 msg_id=%s error=%r", message.message_id, exc)
+        return None
+
+
+def _special_message_policy(message: Message, settings) -> Optional[tuple[str, str]]:
+    """返回 (配置属性, 策略)；未命中特殊消息类型时返回 None。"""
+    for attr, field in (
+        ("contact", "contact_message_policy"),
+        ("story", "story_message_policy"),
+    ):
+        if getattr(message, attr, None) is not None:
+            return field, getattr(settings, field, "off")
+    if getattr(message, "voice", None) is not None or getattr(message, "audio", None) is not None:
+        return "voice_message_policy", getattr(settings, "voice_message_policy", "off")
+    return None
+
+
+async def _enforce_special_message_policy(bot: Bot, message: Message, settings, store) -> bool:
+    """执行联系人/Story/语音策略；返回 True 表示本条消息已结束处理。"""
+    matched = _special_message_policy(message, settings)
+    if matched is None:
+        return False
+    field, policy = matched
+    if policy == "off" or await is_authorized_admin(bot, settings, message):
+        return False
+    if message.from_user is None:
+        return False
+    if policy == "new_member":
+        valid_count, qualified = await store.get_ad_qualification(
+            message.chat.id, message.from_user.id
+        )
+        if qualified or valid_count >= settings.ad_guard_score_skip_threshold:
+            return False
+
+    label = _SPECIAL_MESSAGE_LABELS[field]
+    logger.info(
+        "特殊消息策略触发删除 chat_id=%s user_id=%s msg_id=%s type=%s policy=%s",
+        message.chat.id,
+        message.from_user.id,
+        message.message_id,
+        label,
+        policy,
+    )
+    try:
+        await bot.delete_message(message.chat.id, message.message_id)
+        scope = "新成员" if policy == "new_member" else "所有成员"
+        await send_message_with_ttl(
+            bot,
+            chat_id=message.chat.id,
+            text=f"⚠️ 本群不允许{scope}发送{label}消息。",
+            ttl=resolve_chat(settings, message.chat.id, "message_ttl_seconds"),
+        )
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        logger.warning(
+            "特殊消息策略删除失败 chat_id=%s msg_id=%s error=%s",
+            message.chat.id,
+            message.message_id,
+            exc,
+        )
+    return True
 
 
 def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router:
@@ -444,7 +571,50 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 )
             return
 
-        # SQLite 永久合格用户：前 N 次有效发言通过后写入，之后不再检测。
+        # 行为风控独立于内容免检：永久合格用户也不能靠刷屏绕过。
+        # 编辑事件不重复计数；命中只删当前消息，不扣分、不封禁。
+        if count_valid_speech:
+            # 无 Caption 图片的占位文本不是用户原文：相册仍参与频率统计，
+            # 但不同图片不能因共用占位文本而被判作重复/短文本刷屏。
+            behavior_text = "" if text == _IMAGE_ONLY_PLACEHOLDER else text
+            behavior_result = _BEHAVIOR_GUARD.check(
+                chat_id=chat_id,
+                user_id=user_id,
+                text=behavior_text,
+                duplicate_threshold=settings.ad_guard_duplicate_threshold,
+                duplicate_window_seconds=settings.ad_guard_duplicate_window_seconds,
+                short_flood_threshold=settings.ad_guard_short_flood_threshold,
+                short_flood_window_seconds=settings.ad_guard_short_flood_window_seconds,
+                short_message_length=settings.ad_guard_min_length or 20,
+                rate_limit=settings.ad_guard_message_rate_limit,
+                rate_window_seconds=settings.ad_guard_message_rate_window_seconds,
+            )
+            if behavior_result is not None:
+                logger.info(
+                    "消息行为风控触发 chat_id=%s user_id=%s msg_id=%s rule=%s",
+                    chat_id,
+                    user_id,
+                    message.message_id,
+                    behavior_result,
+                )
+                try:
+                    await bot.delete_message(chat_id, message.message_id)
+                    await send_message_with_ttl(
+                        bot,
+                        chat_id=chat_id,
+                        text=f"⚠️ {_BEHAVIOR_NOTICE[behavior_result]}",
+                        ttl=resolve_chat(settings, chat_id, "message_ttl_seconds"),
+                    )
+                except (TelegramBadRequest, TelegramForbiddenError) as exc:
+                    logger.warning(
+                        "行为风控消息删除失败 chat_id=%s msg_id=%s error=%s",
+                        chat_id,
+                        message.message_id,
+                        exc,
+                    )
+                return "behavior_blocked"
+
+        # SQLite 永久合格用户：前 N 次有效发言通过后写入，之后不再进行内容检测。
         valid_count, is_qualified = await store.get_ad_qualification(chat_id, user_id)
         if is_qualified or valid_count >= settings.ad_guard_score_skip_threshold:
             if current_entry.text:
@@ -491,9 +661,16 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             source = "rule"
             flagged, confidence = (True, 1.0)
         else:
-            # 短消息跳过 LLM 检测，节省配额；启发式规则（上方）不受此限制
+            # 图片不受短文本跳过限制，确保短 Caption + 图片也会送多模态检测。
+            should_check_image = bool(
+                settings.ad_guard_image_enabled and getattr(message, "photo", None)
+            )
             min_length = settings.ad_guard_min_length or 0
-            if min_length > 0 and len(text.strip()) < min_length:
+            if (
+                not should_check_image
+                and min_length > 0
+                and len(text.strip()) < min_length
+            ):
                 logger.debug(
                     "消息长度 %s 低于 AD_GUARD_MIN_LENGTH=%s，跳过 LLM 检测 chat_id=%s user_id=%s",
                     len(text.strip()),
@@ -513,7 +690,15 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     len(guard_payload),
                     truncate_for_logging(guard_payload),
                 )
-                flagged, confidence = await pipeline.check(guard_payload, message=message)
+                # 只有即将请求模型时才下载，避免规则命中或前置豁免产生额外流量。
+                image_data = (
+                    await _download_message_image(bot, message)
+                    if should_check_image
+                    else None
+                )
+                flagged, confidence = await pipeline.check(
+                    guard_payload, message=message, image=image_data
+                )
 
         logger.debug(
             "广告检测结果 chat_id=%s user_id=%s msg_id=%s flagged=%s confidence=%s length=%s context=%s",
@@ -894,10 +1079,6 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     _record_outcome("keyword_deleted")
                     return
 
-        if not _ad_guard_on:
-            _record_outcome("keyword_replied" if kw_replied else "skipped")
-            return
-
         sender_chat = message.sender_chat
         is_auto_forward = getattr(message, "is_automatic_forward", False)
         if _should_block_channel_sender_chat(message, settings.ad_guard_block_sender_chat):
@@ -930,6 +1111,14 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 # 封禁该频道在本群的发言权(失败只记日志,不影响删除流程)
                 await _ban_sender_chat_quiet(bot, message.chat.id, sender_chat.id)
             _record_outcome("channel_blocked")
+            return
+
+        # 类型限制独立于 AI 开关，但频道马甲的原有拦截保持优先。
+        if await _enforce_special_message_policy(bot, message, settings, store):
+            _record_outcome("special_blocked")
+            return
+        if not _ad_guard_on:
+            _record_outcome("keyword_replied" if kw_replied else "skipped")
             return
 
         if message.from_user is None:
@@ -967,13 +1156,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             _record_outcome("keyword_replied" if kw_replied else "skipped")
             return
 
-        is_user_forward = any(
-            (
-                message.forward_from,
-                message.forward_from_chat,
-                getattr(message, "forward_sender_name", None),
-            )
-        )
+        is_user_forward = _is_user_forward_message(message)
         previous_entries = list(history)
         current_entry = build_history_entry(message, text, is_user_forward=is_user_forward)
 
@@ -1026,8 +1209,12 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 await _ban_sender_chat_quiet(bot, message.chat.id, sender_chat.id)
             return
 
-        # 投票、清单等非 text/caption 消息也提取内容进入同一广告管线。
-        # 无文字媒体仍返回空串并跳过,不在本次改动中做 OCR。
+        if await _enforce_special_message_policy(bot, message, settings, store):
+            if metrics is not None and message.chat.type in {"group", "supergroup"}:
+                metrics.record_message(result="special_blocked", chat_id=message.chat.id)
+            return
+
+        # 投票、清单和无 Caption 图片均进入同一广告管线；相册逐张检测。
         if not resolve_chat(settings, message.chat.id, "ad_guard_enabled"):
             return
         if is_auto_forward or message.from_user is None:
@@ -1036,16 +1223,13 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             return
         text = _extract_message_ad_text(message).strip()
         if not text:
-            return
+            if settings.ad_guard_image_enabled and getattr(message, "photo", None):
+                text = _IMAGE_ONLY_PLACEHOLDER
+            else:
+                return
 
         history = history_store.get(message.chat.id)
-        is_user_forward = any(
-            (
-                getattr(message, "forward_from", None),
-                getattr(message, "forward_from_chat", None),
-                getattr(message, "forward_sender_name", None),
-            )
-        )
+        is_user_forward = _is_user_forward_message(message)
         previous_entries = list(history)
         current_entry = build_history_entry(message, text, is_user_forward=is_user_forward)
         ad_outcome = await _evaluate_ad(

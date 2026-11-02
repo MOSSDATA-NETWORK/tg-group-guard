@@ -55,6 +55,18 @@ class Settings:
     ad_guard_ban_sender_chat: bool
     # 群内封禁/踢出成功后是否同步到关联频道
     sync_ban_to_linked_channel: bool
+    # 图片多模态检测与消息行为风控
+    ad_guard_image_enabled: bool
+    ad_guard_duplicate_threshold: int
+    ad_guard_duplicate_window_seconds: int
+    ad_guard_short_flood_threshold: int
+    ad_guard_short_flood_window_seconds: int
+    ad_guard_message_rate_limit: int
+    ad_guard_message_rate_window_seconds: int
+    # 特殊消息类型策略: off / new_member / all
+    contact_message_policy: str
+    story_message_policy: str
+    voice_message_policy: str
     openai_endpoint: Optional[str]
     openai_model: str
     openai_api_key: Optional[str]
@@ -256,6 +268,29 @@ def load_settings() -> Settings:
     sync_ban_to_linked_channel = _read_bool(
         _read_env("SYNC_BAN_TO_LINKED_CHANNEL", "true"), True
     )
+    ad_guard_image_enabled = _read_bool(_read_env("AD_GUARD_IMAGE_ENABLED", "true"), True)
+    ad_guard_duplicate_threshold = max(int(_read_env("AD_GUARD_DUPLICATE_THRESHOLD", "4")), 0)
+    ad_guard_duplicate_window_seconds = max(
+        int(_read_env("AD_GUARD_DUPLICATE_WINDOW_SECONDS", "600")), 1
+    )
+    ad_guard_short_flood_threshold = max(int(_read_env("AD_GUARD_SHORT_FLOOD_THRESHOLD", "6")), 0)
+    ad_guard_short_flood_window_seconds = max(
+        int(_read_env("AD_GUARD_SHORT_FLOOD_WINDOW_SECONDS", "300")), 1
+    )
+    ad_guard_message_rate_limit = max(int(_read_env("AD_GUARD_MESSAGE_RATE_LIMIT", "15")), 0)
+    ad_guard_message_rate_window_seconds = max(
+        int(_read_env("AD_GUARD_MESSAGE_RATE_WINDOW_SECONDS", "60")), 1
+    )
+    contact_message_policy = _read_env("CONTACT_MESSAGE_POLICY", "off").strip().lower()
+    story_message_policy = _read_env("STORY_MESSAGE_POLICY", "off").strip().lower()
+    voice_message_policy = _read_env("VOICE_MESSAGE_POLICY", "off").strip().lower()
+    for policy_key, policy_value in (
+        ("CONTACT_MESSAGE_POLICY", contact_message_policy),
+        ("STORY_MESSAGE_POLICY", story_message_policy),
+        ("VOICE_MESSAGE_POLICY", voice_message_policy),
+    ):
+        if policy_value not in {"off", "new_member", "all"}:
+            raise RuntimeError(f"{policy_key} 仅支持 off / new_member / all")
     # OpenAI 兼容端点;旧名 HUNYUAN_* 仍兼容读取,但优先用 OPENAI_*
     openai_endpoint = (
         _read_env("OPENAI_ENDPOINT", "") or _read_env("HUNYUAN_ENDPOINT", "")
@@ -353,6 +388,16 @@ def load_settings() -> Settings:
         ad_guard_block_sender_chat=ad_guard_block_sender_chat,
         ad_guard_ban_sender_chat=ad_guard_ban_sender_chat,
         sync_ban_to_linked_channel=sync_ban_to_linked_channel,
+        ad_guard_image_enabled=ad_guard_image_enabled,
+        ad_guard_duplicate_threshold=ad_guard_duplicate_threshold,
+        ad_guard_duplicate_window_seconds=ad_guard_duplicate_window_seconds,
+        ad_guard_short_flood_threshold=ad_guard_short_flood_threshold,
+        ad_guard_short_flood_window_seconds=ad_guard_short_flood_window_seconds,
+        ad_guard_message_rate_limit=ad_guard_message_rate_limit,
+        ad_guard_message_rate_window_seconds=ad_guard_message_rate_window_seconds,
+        contact_message_policy=contact_message_policy,
+        story_message_policy=story_message_policy,
+        voice_message_policy=voice_message_policy,
         openai_endpoint=openai_endpoint,
         openai_model=openai_model,
         openai_api_key=openai_api_key,

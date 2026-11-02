@@ -1322,7 +1322,410 @@ def test_extract_message_ad_text():
     assert _extract_message_ad_text(message(checklist=checklist)).splitlines() == [
         "清单标题", "任务一", "任务二"
     ]
-    print("PASS: 隐藏链接/按钮/投票/清单广告文本提取正确")
+
+    related = message(
+        text="当前正文",
+        quote=_SN(text="引用内容", entities=[_SN(url="https://quote.example")]),
+        reply_to_message=message(
+            caption="回复图片说明",
+            caption_entities=[_SN(url="https://reply.example")],
+            poll=poll,
+        ),
+        external_reply=_SN(checklist=checklist),
+    )
+    related_text = _extract_message_ad_text(related)
+    for expected in (
+        "当前正文",
+        "引用内容",
+        "https://quote.example",
+        "回复图片说明",
+        "https://reply.example",
+        "投票问题",
+        "清单标题",
+        "任务二",
+    ):
+        assert expected in related_text, (expected, related_text)
+
+    from app.routers.ad_guard import _is_user_forward_message
+
+    assert _is_user_forward_message(message(forward_origin=_SN(type="user"))) is True
+    assert _is_user_forward_message(message(forward_origin=None)) is False
+    print("PASS: 隐藏链接/按钮/投票/清单/引用回复广告文本提取正确")
+
+
+def test_message_behavior_guard():
+    """重复、短消息和频率阈值，以及窗口过期与 0 关闭语义。"""
+    from app.bot_components.behavior import MessageBehaviorGuard
+
+    def check(guard, text, now, **overrides):
+        kwargs = dict(
+            chat_id=-100,
+            user_id=42,
+            text=text,
+            duplicate_threshold=0,
+            duplicate_window_seconds=600,
+            short_flood_threshold=0,
+            short_flood_window_seconds=300,
+            short_message_length=20,
+            rate_limit=0,
+            rate_window_seconds=60,
+            now=now,
+        )
+        kwargs.update(overrides)
+        return guard.check(**kwargs)
+
+    guard = MessageBehaviorGuard()
+    for index in range(3):
+        assert check(guard, "Hello   World", index, duplicate_threshold=4) is None
+    assert check(guard, " hello world ", 3, duplicate_threshold=4) == "duplicate"
+
+    guard.clear()
+    for index in range(5):
+        assert check(guard, f"嗨{index}", index, short_flood_threshold=6) is None
+    assert check(guard, "嗨5", 5, short_flood_threshold=6) == "short_flood"
+
+    guard.clear()
+    for index in range(15):
+        text = f"这是一条用于频率测试的普通长消息-{index}"
+        assert check(guard, text, index, rate_limit=15) is None
+    assert check(guard, "这是第十六条普通长消息", 15, rate_limit=15) == "rate"
+
+    guard.clear()
+    assert check(guard, "重复", 0, duplicate_threshold=2, duplicate_window_seconds=10) is None
+    assert check(guard, "重复", 11, duplicate_threshold=2, duplicate_window_seconds=10) is None
+    assert check(guard, "任意", 12) is None
+
+    guard.clear()
+    for index in range(6):
+        assert check(
+            guard,
+            "",
+            index,
+            duplicate_threshold=4,
+            short_flood_threshold=6,
+        ) is None, "无文字媒体不得计入重复/短文本刷屏"
+    print("PASS: 消息行为风控阈值/归一化/窗口过期/关闭语义正确")
+
+
+async def test_multimodal_provider_payloads():
+    """OpenAI 与 Ollama 图片均按各自协议编码，纯文本请求保持原格式。"""
+    from types import SimpleNamespace as _SN
+
+    from app.bot_components import ad_guard as ag
+
+    captured = []
+
+    class _Resp:
+        status = 200
+
+        def __init__(self, ollama):
+            self.ollama = ollama
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def json(self):
+            if self.ollama:
+                return {"response": '{"advertisement": false, "confidence": 0.1}'}
+            return {"choices": [{"message": {"content": '{"advertisement": false, "confidence": 0.1}'}}]}
+
+        async def text(self):
+            return ""
+
+    class _Session:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def post(self, url, json=None, headers=None):
+            captured.append((url, json))
+            return _Resp(url.endswith("/api/generate"))
+
+    settings = _SN(
+        openai_api_key="sk-x",
+        openai_endpoint="https://openai.example",
+        openai_model="gpt-4o-mini",
+        openai_timeout_seconds=30,
+        ollama_endpoint="http://ollama.example",
+        ollama_model="qwen-vl",
+        ollama_timeout_seconds=30,
+        ad_guard_threshold=0.5,
+    )
+    real = ag.aiohttp
+    ag.aiohttp = _SN(ClientSession=_Session, ClientTimeout=lambda **kw: None, ClientError=Exception)
+    try:
+        await ag._check_advertisement_openai("检查图片", settings, image=b"\x00\x01")
+        await ag._check_advertisement_ollama("检查图片", settings, image=b"\x00\x01")
+        await ag._check_advertisement_openai("纯文本", settings)
+    finally:
+        ag.aiohttp = real
+
+    openai_content = captured[0][1]["messages"][0]["content"]
+    assert openai_content[0] == {"type": "text", "text": ag.render_prompt_message("检查图片")}
+    assert openai_content[1]["image_url"]["url"] == "data:image/jpeg;base64,AAE="
+    assert captured[1][1]["images"] == ["AAE="]
+    assert isinstance(captured[2][1]["messages"][0]["content"], str)
+    print("PASS: OpenAI/Ollama 多模态图片 payload 与纯文本兼容格式正确")
+
+
+async def test_image_download_limits():
+    """图片预检、下载后大小限制及正常下载。"""
+    import io
+    from types import SimpleNamespace as _SN
+
+    from app.routers.ad_guard import _MAX_IMAGE_BYTES, _download_message_image
+
+    class _Bot:
+        def __init__(self, data=b"image"):
+            self.data = data
+            self.get_file_calls = 0
+
+        async def get_file(self, file_id):
+            self.get_file_calls += 1
+            return _SN(file_path="photos/image.jpg", file_size=None)
+
+        async def download_file(self, file_path):
+            return io.BytesIO(self.data)
+
+    oversized = _SN(message_id=1, photo=[_SN(file_id="big", file_size=_MAX_IMAGE_BYTES + 1)])
+    bot = _Bot()
+    assert await _download_message_image(bot, oversized) is None
+    assert bot.get_file_calls == 0
+
+    normal = _SN(message_id=2, photo=[_SN(file_id="ok", file_size=None)])
+    assert await _download_message_image(bot, normal) == b"image"
+
+    bot_too_large = _Bot(data=b"x" * (_MAX_IMAGE_BYTES + 1))
+    assert await _download_message_image(bot_too_large, normal) is None
+    print("PASS: 图片下载预检/下载后 10 MiB 限制与正常读取正确")
+
+
+async def test_special_message_policies():
+    """特殊消息 off/new_member/all，以及合格用户和管理员豁免。"""
+    from types import SimpleNamespace as _SN
+
+    from app.routers.ad_guard import _enforce_special_message_policy, _special_message_policy
+
+    class _Store:
+        valid_count = 0
+        qualified = False
+
+        async def get_ad_qualification(self, chat_id, user_id):
+            return self.valid_count, self.qualified
+
+    class _Bot:
+        def __init__(self):
+            self.deleted = []
+            self.admin = False
+
+        async def get_chat_member(self, chat_id, user_id):
+            return _SN(status="administrator" if self.admin else "member")
+
+        async def delete_message(self, chat_id, message_id):
+            self.deleted.append(message_id)
+
+        async def send_message(self, chat_id, text, **kwargs):
+            return _SN(message_id=999, chat=_SN(id=chat_id))
+
+    settings = _SN(
+        allowed_chat_ids=set(),
+        contact_message_policy="off",
+        story_message_policy="off",
+        voice_message_policy="off",
+        ad_guard_score_skip_threshold=3,
+        message_ttl_seconds=None,
+    )
+    message = _SN(
+        chat=_SN(id=-100, type="group"),
+        from_user=_SN(id=42),
+        message_id=1,
+        contact=_SN(phone_number="123"),
+        story=None,
+        voice=None,
+        audio=None,
+    )
+    store, bot = _Store(), _Bot()
+    assert _special_message_policy(message, settings) == ("contact_message_policy", "off")
+    assert await _enforce_special_message_policy(bot, message, settings, store) is False
+
+    settings.contact_message_policy = "new_member"
+    assert await _enforce_special_message_policy(bot, message, settings, store) is True
+    assert bot.deleted == [1]
+    store.valid_count, store.qualified = 3, True
+    assert await _enforce_special_message_policy(bot, message, settings, store) is False
+
+    settings.contact_message_policy = "all"
+    assert await _enforce_special_message_policy(bot, message, settings, store) is True
+    assert bot.deleted == [1, 1]
+    bot.admin = True
+    assert await _enforce_special_message_policy(bot, message, settings, store) is False
+    assert bot.deleted == [1, 1]
+
+    message.contact = None
+    message.voice = _SN(file_id="voice")
+    assert _special_message_policy(message, settings) == ("voice_message_policy", "off")
+    print("PASS: 联系人/Story/语音策略及新成员、合格用户、管理员豁免正确")
+
+
+async def test_media_poll_and_special_handlers_reach_pipeline():
+    """真实路由：无 Caption 图片和投票进入检测，类型策略在 AI 关闭时仍生效。"""
+    import io
+    from types import SimpleNamespace as _SN
+
+    from app.routers import ad_guard as router_module
+    from app.state.message_history import MessageHistoryStore
+
+    class _Store:
+        async def get_pending(self, chat_id, user_id):
+            return None
+
+        async def get_ad_qualification(self, chat_id, user_id):
+            return 0, False
+
+        async def record_ad_valid_speech(self, **kwargs):
+            return 1, False
+
+        async def record_ad_decision(self, **kwargs):
+            return 1
+
+    class _Score:
+        async def get_score(self, chat_id, user_id):
+            return 0
+
+    class _Pipeline:
+        def __init__(self):
+            self.calls = []
+
+        async def check(self, content, *, message=None, image=None):
+            self.calls.append((content, image))
+            return False, 0.1
+
+    class _Bot:
+        id = 999
+
+        def __init__(self):
+            self.deleted = []
+
+        async def get_chat_member(self, chat_id, user_id):
+            return _SN(status="member")
+
+        async def get_file(self, file_id):
+            return _SN(file_path="photos/image.jpg", file_size=5)
+
+        async def download_file(self, file_path):
+            return io.BytesIO(b"image")
+
+        async def delete_message(self, chat_id, message_id):
+            self.deleted.append(message_id)
+
+        async def send_message(self, chat_id, text, **kwargs):
+            return _SN(message_id=999, chat=_SN(id=chat_id))
+
+    settings = _SN(
+        allowed_chat_ids=set(),
+        ad_guard_enabled=True,
+        ad_guard_image_enabled=True,
+        ad_guard_include_bots=True,
+        ad_guard_block_sender_chat=False,
+        ad_guard_ban_sender_chat=False,
+        ad_guard_duplicate_threshold=4,
+        ad_guard_duplicate_window_seconds=600,
+        ad_guard_short_flood_threshold=6,
+        ad_guard_short_flood_window_seconds=300,
+        ad_guard_message_rate_limit=0,
+        ad_guard_message_rate_window_seconds=60,
+        ad_guard_min_length=20,
+        ad_guard_score_skip_threshold=3,
+        ad_guard_score_ban_threshold=-10,
+        contact_message_policy="off",
+        story_message_policy="off",
+        voice_message_policy="off",
+        message_ttl_seconds=None,
+    )
+    pipeline = _Pipeline()
+    services = _SN(
+        settings=settings,
+        store=_Store(),
+        score_manager=_Score(),
+        history_store=MessageHistoryStore(),
+        ad_review_store=None,
+        ad_vote_store=None,
+        metrics=None,
+    )
+    router = router_module.build_ad_guard_router(services, pipeline)
+    handlers = {handler.callback.__name__: handler.callback for handler in router.message.handlers}
+    handle_non_text = handlers["handle_non_text_messages"]
+
+    def message(message_id, **overrides):
+        data = dict(
+            chat=_SN(id=-100, type="group"),
+            from_user=_SN(id=42, full_name="User", username=None, is_bot=False),
+            sender_chat=None,
+            is_automatic_forward=False,
+            message_id=message_id,
+            photo=None,
+            poll=None,
+            contact=None,
+            story=None,
+            voice=None,
+            audio=None,
+        )
+        data.update(overrides)
+        return _SN(**data)
+
+    bot = _Bot()
+    router_module._BEHAVIOR_GUARD.clear()
+    try:
+        await handle_non_text(
+            message(1, photo=[_SN(file_id="photo", file_size=5)]), bot
+        )
+        assert len(pipeline.calls) == 1
+        assert "图片消息，无文字说明" in pipeline.calls[0][0]
+        assert pipeline.calls[0][1] == b"image"
+
+        poll_question = "本周日晚上我们一起到市中心聚餐吗大家觉得怎么样"
+        poll = _SN(
+            question=poll_question,
+            question_entities=None,
+            options=[_SN(text="参加", text_entities=None)],
+            explanation=None,
+            explanation_entities=None,
+        )
+        await handle_non_text(message(2, poll=poll), bot)
+        assert len(pipeline.calls) == 2
+        assert poll_question in pipeline.calls[1][0]
+
+        # 四张无 Caption 图片不能被共用占位文本误判成重复消息。
+        for message_id in range(10, 14):
+            await handle_non_text(
+                message(message_id, photo=[_SN(file_id=f"photo-{message_id}", file_size=5)]),
+                bot,
+            )
+        assert len(pipeline.calls) == 6
+        assert not bot.deleted
+
+        settings.ad_guard_image_enabled = False
+        await handle_non_text(
+            message(3, photo=[_SN(file_id="photo", file_size=5)]), bot
+        )
+        assert len(pipeline.calls) == 6
+
+        settings.ad_guard_enabled = False
+        settings.contact_message_policy = "all"
+        await handle_non_text(message(4, contact=_SN(phone_number="123")), bot)
+        assert bot.deleted == [4]
+        assert len(pipeline.calls) == 6
+    finally:
+        router_module._BEHAVIOR_GUARD.clear()
+    print("PASS: 无 Caption 图片/相册/投票真实路由及 AI 关闭时特殊消息策略正确")
 
 
 async def test_sync_ban_to_linked_channel():
@@ -1478,6 +1881,11 @@ async def main():
     test_registered_command_gate()
     test_short_message_valid_speech_gate()
     test_extract_message_ad_text()
+    test_message_behavior_guard()
+    await test_multimodal_provider_payloads()
+    await test_image_download_limits()
+    await test_special_message_policies()
+    await test_media_poll_and_special_handlers_reach_pipeline()
     await test_sync_ban_to_linked_channel()
     await test_linked_sync_toggle()
     await test_ban_sender_chat_quiet()
