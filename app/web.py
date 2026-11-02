@@ -624,16 +624,6 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
             sorted(hot),
             sorted(restart),
         )
-        asyncio.create_task(
-            notify_admins(
-                app.state.bot,
-                settings,
-                "⚙️ 后台配置已更新\n"
-                f"操作人：{session.get('name')} ({session.get('user_id')})\n"
-                f"即时生效：{', '.join(sorted(hot)) or '无'}\n"
-                f"重启后生效：{', '.join(sorted(restart)) or '无'}",
-            )
-        )
         return JSONResponse(
             {
                 "status": "ok",
@@ -720,16 +710,6 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
             session.get("user_id"),
             chat_id,
             sorted(cleaned),
-        )
-        asyncio.create_task(
-            notify_admins(
-                app.state.bot,
-                settings,
-                "⚙️ 本群差异化配置已更新\n"
-                f"操作人：{session.get('name')} ({session.get('user_id')})\n"
-                f"群：{chat_id}\n"
-                f"覆盖项：{', '.join(sorted(cleaned)) or '已清空（全部跟随全局）'}",
-            )
         )
         return JSONResponse({"status": "ok", "count": len(cleaned)})
 

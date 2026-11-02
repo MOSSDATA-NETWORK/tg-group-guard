@@ -1042,6 +1042,30 @@ def test_settings_api_exposes_ad_guard_effective():
     print("PASS: 设置 API 暴露 ad_guard 意图与实际生效状态")
 
 
+def test_settings_save_has_no_group_notifications():
+    """全局与按群配置保存只写日志，不向授权群发送通知。"""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path("app/web.py").read_text(encoding="utf-8"))
+    targets = {"admin_api_settings_put", "admin_api_chat_settings_put"}
+    found = set()
+    notify_calls = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in targets:
+            found.add(node.name)
+            for child in ast.walk(node):
+                if (
+                    isinstance(child, ast.Call)
+                    and isinstance(child.func, ast.Name)
+                    and child.func.id == "notify_admins"
+                ):
+                    notify_calls.append(node.name)
+    assert found == targets, "未找到两个配置保存端点"
+    assert not notify_calls, f"配置保存仍会通知群组: {notify_calls}"
+    print("PASS: 全局/按群配置保存均不发送群通知")
+
+
 def test_extract_media_payload():
     """#1: 媒体快照提取(取最大尺寸/各类型/无媒体)。"""
     from types import SimpleNamespace as _SN
@@ -1355,6 +1379,7 @@ async def main():
     await test_openai_empty_endpoint_uses_official()
     test_heuristic_timeout_circuit_breaker()
     test_settings_api_exposes_ad_guard_effective()
+    test_settings_save_has_no_group_notifications()
     test_extract_media_payload()
     await test_prompt_record_failure_still_schedules_ttl()
     await test_low_score_ban_failure_rollback_and_cooldown()
