@@ -15,6 +15,7 @@ from ..config import Settings
 from ..chat_settings import resolve_chat
 from ..storage import VerificationRecord, VerificationStore
 from .constants import UTC
+from .linked import sync_ban_to_linked_channel
 from .messaging import send_message_with_ttl
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,10 @@ async def ban_and_cleanup(
                 user_id=record.user_id,
                 only_if_banned=True,
             )
+        # 群内封禁成功后,同步到关联频道(无频道/无权限静默跳过)
+        await sync_ban_to_linked_channel(
+            bot, record.chat_id, record.user_id, unban_after=unban_after
+        )
         logger.info(
             "已移除待验证用户 chat_id=%s user_id=%s reason=%s",
             record.chat_id,

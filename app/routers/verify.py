@@ -211,6 +211,12 @@ async def _execute_admin_action(
                 until_date=until_date,
                 revoke_messages=True,
             )
+            # 同步临时封禁到关联频道(相同时长;无频道/无权限静默跳过)
+            from ..bot_components.linked import sync_ban_to_linked_channel
+
+            await sync_ban_to_linked_channel(
+                bot, record.chat_id, record.user_id, until_date=until_date
+            )
         except TelegramBadRequest as exc:
             logger.warning(
                 "临时封禁失败 chat_id=%s user_id=%s operator=%s error=%s",

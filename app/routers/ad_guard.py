@@ -32,6 +32,7 @@ from ..bot_components.messaging import (
     truncate_for_logging,
 )
 from ..bot_components.moderation import handle_low_score_violation
+from ..bot_components.linked import sync_ban_to_linked_channel
 from ..bot_components.permissions import is_authorized_admin
 from ..chat_settings import resolve_chat
 from ..services.ad_pipeline import AdPipeline
@@ -62,6 +63,24 @@ def _should_skip_bot_message(message: Message, bot_id: int, include_bots: bool) 
     if message.from_user.id == bot_id:
         return True
     return not include_bots
+
+
+async def _ban_sender_chat_quiet(bot: Bot, chat_id: int, sender_chat_id: int) -> None:
+    """封禁频道在本群的发言权;失败只记日志,不阻断删除流程。
+
+    ban 用户封不住其"频道身份"——广告号被踢后可换自己的频道继续发言,
+    ban_sender_chat 才能根治。
+    """
+    try:
+        await bot.ban_sender_chat(chat_id, sender_chat_id)
+        logger.info("已封禁频道身份发言 chat_id=%s sender_chat_id=%s", chat_id, sender_chat_id)
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        logger.warning(
+            "封禁频道身份失败 chat_id=%s sender_chat_id=%s error=%s",
+            chat_id,
+            sender_chat_id,
+            exc,
+        )
 
 
 def _extract_media_payload(message: Message) -> tuple[Optional[str], Optional[str]]:
@@ -485,6 +504,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 )
             try:
                 await bot.ban_chat_member(chat_id, message.from_user.id)
+                await sync_ban_to_linked_channel(bot, chat_id, message.from_user.id)
                 await _record_ban_event_safe(
                     chat_id=chat_id,
                     user_id=message.from_user.id,
@@ -588,6 +608,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             if score_after_penalty <= settings.ad_guard_score_ban_threshold:
                 try:
                     await bot.ban_chat_member(chat_id, message.from_user.id)
+                    await sync_ban_to_linked_channel(bot, chat_id, message.from_user.id)
                     action_suffix = "（已封禁该用户）"
                     ban_success = True
                     await _record_ban_event_safe(
@@ -816,6 +837,9 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     exc,
                     exc_info=exc,
                 )
+            if settings.ad_guard_ban_sender_chat:
+                # 封禁该频道在本群的发言权(失败只记日志,不影响删除流程)
+                await _ban_sender_chat_quiet(bot, message.chat.id, sender_chat.id)
             _record_outcome("channel_blocked")
             return
 
@@ -908,6 +932,9 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     exc,
                     exc_info=exc,
                 )
+            if settings.ad_guard_ban_sender_chat:
+                # 非文本频道身份发言(贴纸等)同样封禁该频道,与文本路径一致
+                await _ban_sender_chat_quiet(bot, message.chat.id, sender_chat.id)
             return
 
     @router.callback_query(lambda call: call.data and call.data.startswith("adreview:"))
@@ -971,6 +998,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             ban_error: Optional[Exception] = None
             try:
                 await bot.ban_chat_member(case.chat_id, case.offender_id)
+                await sync_ban_to_linked_channel(bot, case.chat_id, case.offender_id)
             except TelegramBadRequest as exc:
                 if "USER_ALREADY_BANNED" not in str(exc):
                     ban_error = exc
@@ -1226,6 +1254,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         ban_error: Optional[Exception] = None
         try:
             await bot.ban_chat_member(context.chat_id, context.offender_id)
+            await sync_ban_to_linked_channel(bot, context.chat_id, context.offender_id)
         except TelegramBadRequest as exc:
             if "USER_ALREADY_BANNED" not in str(exc):
                 ban_error = exc

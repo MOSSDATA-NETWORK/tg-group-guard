@@ -1192,6 +1192,84 @@ def test_bot_message_ad_scan_gate():
     print("PASS: bot 消息广告检测门控(纳入/自身豁免/开关回退)正确")
 
 
+async def test_sync_ban_to_linked_channel():
+    """关联频道同步封禁:有频道同步/踢出语义/临时时长/无频道跳过/异常静默。"""
+    from types import SimpleNamespace as _SN
+
+    from aiogram.exceptions import TelegramBadRequest
+
+    from app.bot_components.linked import sync_ban_to_linked_channel
+
+    class _Bot:
+        def __init__(self, linked_id, fail_ban=False):
+            self.linked_id = linked_id
+            self.fail_ban = fail_ban
+            self.bans: list[tuple] = []
+            self.unbans: list[tuple] = []
+
+        async def get_chat(self, chat_id):
+            return _SN(linked_chat_id=self.linked_id)
+
+        async def ban_chat_member(self, chat_id, user_id, until_date=None, **kw):
+            if self.fail_ban:
+                raise TelegramBadRequest(method=None, message="not enough rights")
+            self.bans.append((chat_id, user_id, until_date))
+
+        async def unban_chat_member(self, chat_id, user_id, only_if_banned=False):
+            self.unbans.append((chat_id, user_id))
+
+    # 有频道:永久封禁同步
+    bot = _Bot(linked_id=-300)
+    await sync_ban_to_linked_channel(bot, -100, 42)
+    assert bot.bans == [(-300, 42, None)] and not bot.unbans
+
+    # 踢出语义:频道侧同样 ban+unban
+    bot = _Bot(linked_id=-300)
+    await sync_ban_to_linked_channel(bot, -100, 42, unban_after=True)
+    assert bot.bans == [(-300, 42, None)] and bot.unbans == [(-300, 42)]
+
+    # 临时封禁:时长透传
+    from datetime import datetime, timezone
+
+    until = datetime.now(tz=timezone.utc)
+    bot = _Bot(linked_id=-300)
+    await sync_ban_to_linked_channel(bot, -100, 42, until_date=until)
+    assert bot.bans == [(-300, 42, until)]
+
+    # 无关联频道:不调用任何封禁
+    bot = _Bot(linked_id=None)
+    await sync_ban_to_linked_channel(bot, -100, 42)
+    assert not bot.bans and not bot.unbans
+
+    # 频道侧失败:静默处理不外抛
+    bot = _Bot(linked_id=-300, fail_ban=True)
+    await sync_ban_to_linked_channel(bot, -100, 42)  # 不应抛异常
+    print("PASS: 关联频道同步封禁(同步/踢出/时长/无频道/异常静默)正确")
+
+
+async def test_ban_sender_chat_quiet():
+    """频道身份封禁:成功调用 + 异常静默不阻断。"""
+    from aiogram.exceptions import TelegramBadRequest
+
+    from app.routers.ad_guard import _ban_sender_chat_quiet
+
+    calls: list[tuple] = []
+
+    class _Bot:
+        def __init__(self, fail=False):
+            self.fail = fail
+
+        async def ban_sender_chat(self, chat_id, sender_chat_id):
+            if self.fail:
+                raise TelegramBadRequest(method=None, message="not enough rights")
+            calls.append((chat_id, sender_chat_id))
+
+    await _ban_sender_chat_quiet(_Bot(), -100, -500)
+    assert calls == [(-100, -500)]
+    await _ban_sender_chat_quiet(_Bot(fail=True), -100, -500)  # 不应抛异常
+    print("PASS: 频道身份 ban_sender_chat(成功/异常静默)正确")
+
+
 async def main():
     await test_summarize_metrics_keyerror()
     await test_recent_events_default_30d()
@@ -1229,6 +1307,8 @@ async def main():
     await test_prompt_record_failure_still_schedules_ttl()
     await test_low_score_ban_failure_rollback_and_cooldown()
     test_bot_message_ad_scan_gate()
+    await test_sync_ban_to_linked_channel()
+    await test_ban_sender_chat_quiet()
     print("\n全部回归验证通过")
 
 

@@ -10,6 +10,7 @@ from aiogram.types import Message
 
 from ..config import Settings
 from ..chat_settings import resolve_chat
+from .linked import sync_ban_to_linked_channel
 from .messaging import send_message_with_ttl
 from .scoring import RedisDailyScoreManager
 
@@ -118,6 +119,8 @@ async def handle_low_score_violation(
         _ban_failure_cooldown[(chat_id, user_id)] = now_mono
     else:
         _ban_failure_cooldown.pop((chat_id, user_id), None)
+        # 群内封禁成功后,同步到关联频道(踢出语义同步踢出)
+        await sync_ban_to_linked_channel(bot, chat_id, user_id, unban_after=kick_only)
 
     if ban_success:
         await score_manager.reset_score(chat_id, user_id)

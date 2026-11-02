@@ -11,6 +11,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from ..bot_components.constants import ADMIN_STATUSES
+from ..bot_components.linked import sync_ban_to_linked_channel
 from ..bot_components.messaging import send_message_with_ttl, schedule_message_auto_delete
 from ..bot_components.permissions import (
     is_authorized_admin,
@@ -314,6 +315,7 @@ def build_admin_commands_router(services: BotServices) -> Router:
         if exceeded:
             try:
                 await bot.ban_chat_member(chat.id, target_user.id)
+                await sync_ban_to_linked_channel(bot, chat.id, target_user.id)
                 await score_manager.reset_score(chat.id, target_user.id)
                 await store.reset_ad_qualification(chat.id, target_user.id)
                 await _record_ban_event_safe(
@@ -419,6 +421,7 @@ def build_admin_commands_router(services: BotServices) -> Router:
 
         try:
             await bot.ban_chat_member(message.chat.id, target_user.id)
+            await sync_ban_to_linked_channel(bot, message.chat.id, target_user.id)
             operator = message.from_user
             await _record_ban_event_safe(
                 chat_id=message.chat.id,
@@ -509,6 +512,7 @@ def build_admin_commands_router(services: BotServices) -> Router:
 
         try:
             await bot.ban_chat_member(message.chat.id, target_user.id)
+            await sync_ban_to_linked_channel(bot, message.chat.id, target_user.id)
             await score_manager.reset_score(message.chat.id, target_user.id)
             await store.reset_ad_qualification(message.chat.id, target_user.id)
             operator = message.from_user
