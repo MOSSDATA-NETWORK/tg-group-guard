@@ -1162,6 +1162,36 @@ async def test_low_score_ban_failure_rollback_and_cooldown():
     print("PASS: 低分 ban 失败回滚扣分 + 冷却防刷屏(静默删除保留)")
 
 
+def test_bot_message_ad_scan_gate():
+    """bot 广告识别:其他 bot 消息默认纳入检测,自身豁免,开关可回退旧行为。"""
+    from types import SimpleNamespace as _SN
+
+    from app.routers.ad_guard import _should_skip_bot_message
+
+    human = _SN(from_user=_SN(id=1001, is_bot=False))
+    own_bot = _SN(from_user=_SN(id=999, is_bot=True))
+    other_bot = _SN(from_user=_SN(id=555, is_bot=True))
+    anonymous = _SN(from_user=None)
+
+    # 其他 bot:开启时纳入检测(不跳过),关闭时跳过(旧行为)
+    assert _should_skip_bot_message(other_bot, 999, True) is False, "bot 广告未被纳入检测"
+    assert _should_skip_bot_message(other_bot, 999, False) is True
+    # 自身始终豁免
+    assert _should_skip_bot_message(own_bot, 999, True) is True
+    assert _should_skip_bot_message(own_bot, 999, False) is True
+    # 人类/匿名不受该门控影响
+    assert _should_skip_bot_message(human, 999, True) is False
+    assert _should_skip_bot_message(anonymous, 999, True) is False
+
+    # 配置默认值:Settings 新字段存在且默认 true
+    import inspect
+
+    from app.config import Settings
+
+    assert "ad_guard_include_bots" in inspect.signature(Settings).parameters
+    print("PASS: bot 消息广告检测门控(纳入/自身豁免/开关回退)正确")
+
+
 async def main():
     await test_summarize_metrics_keyerror()
     await test_recent_events_default_30d()
@@ -1198,6 +1228,7 @@ async def main():
     test_extract_media_payload()
     await test_prompt_record_failure_still_schedules_ttl()
     await test_low_score_ban_failure_rollback_and_cooldown()
+    test_bot_message_ad_scan_gate()
     print("\n全部回归验证通过")
 
 

@@ -76,6 +76,8 @@ FIELDS: tuple[FieldSpec, ...] = (
               min_value=0.0, max_value=1.0),
     FieldSpec("AD_GUARD_BAN", "ad_guard_ban", "bool", "广告守卫",
               "命中广告即封禁", "关闭时命中广告只踢出不封禁", False),
+    FieldSpec("AD_GUARD_INCLUDE_BOTS", "ad_guard_include_bots", "bool", "广告守卫",
+              "检测其他 bot 的消息", "开启后其他 bot 账号发的消息也纳入广告检测与关键词删除(广告号常用 bot 发广告绕过);自身消息始终豁免,关键词回复仍排除 bot 防死循环", False),
     FieldSpec("AD_GUARD_SCORE_SKIP_THRESHOLD", "ad_guard_score_skip_threshold", "int", "广告守卫",
               "免检通过次数", "新成员通过广告检测达到该次数后永久免检", False, min_value=1),
     FieldSpec("AD_GUARD_SCORE_BAN_THRESHOLD", "ad_guard_score_ban_threshold", "int", "广告守卫",

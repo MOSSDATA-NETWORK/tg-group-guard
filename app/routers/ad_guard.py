@@ -52,6 +52,18 @@ def _provider_label(provider: str) -> str:
     return _PROVIDER_LABEL.get(provider, provider or "AI")
 
 
+def _should_skip_bot_message(message: Message, bot_id: int, include_bots: bool) -> bool:
+    """bot 消息是否跳过广告检测:自身始终豁免;开关关闭时跳过其他 bot。
+
+    人类消息与匿名消息返回 False(匿名由外层单独处理)。
+    """
+    if message.from_user is None or not message.from_user.is_bot:
+        return False
+    if message.from_user.id == bot_id:
+        return True
+    return not include_bots
+
+
 def _extract_media_payload(message: Message) -> tuple[Optional[str], Optional[str]]:
     """提取消息的媒体类型与 file_id(取最大尺寸),供复核恢复快照;无媒体返回 (None, None)。"""
     if message.photo:
@@ -720,11 +732,12 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         kw_replied = False
 
         def _record_outcome(result: str) -> None:
+            # bot 消息的处理结果(广告命中/关键词删除等)也计入指标;
+            # 自己的 bot 消息 Bot API 不回推,无需排除
             if (
                 metrics is not None
                 and message.chat.type in {"group", "supergroup"}
                 and message.from_user is not None
-                and not message.from_user.is_bot
             ):
                 metrics.record_message(result=result, chat_id=message.chat.id)
 
@@ -753,14 +766,16 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 if replied:
                     kw_replied = True
 
-        # 关键词自动删除:独立于广告守卫开关;编辑消息不触发
+        # 关键词自动删除:独立于广告守卫开关;编辑消息不触发。
+        # bot 消息也纳入删除(删除型操作无 bot 间对话循环风险),受 include_bots 开关控制;
+        # 注意关键词自动回复仍排除 bot,避免 bot 之间互相触发回复死循环
         if (
             not is_edit
             and _kw_delete_on
             and message.chat.type in {"group", "supergroup"}
             and message.sender_chat is None
             and message.from_user is not None
-            and not message.from_user.is_bot
+            and (not message.from_user.is_bot or settings.ad_guard_include_bots)
         ):
             kd_rules = get_keyword_deletion_rules()
             if kd_rules:
@@ -804,8 +819,13 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             _record_outcome("channel_blocked")
             return
 
-        if message.from_user is None or message.from_user.is_bot:
-            # 机器人/匿名消息不计入指标(与原口径一致)
+        if message.from_user is None:
+            # 匿名(群管理员匿名发言)消息跳过,与原口径一致
+            return
+        if _should_skip_bot_message(message, bot.id, settings.ad_guard_include_bots):
+            # bot 账号发的消息默认也纳入广告检测——广告号常改用 bot 发广告,
+            # 此前 is_bot 一律跳过导致这类广告完全绕过防护。
+            # 自身豁免(Bot API 本就不回推,双保险);可用开关回到旧行为。
             return
 
         # 同时支持纯文本和带图/媒体的 caption（广告号常把文案塞进图片说明绕过检测）

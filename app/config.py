@@ -47,6 +47,8 @@ class Settings:
     ollama_model: str
     ollama_timeout_seconds: int
     ad_guard_ban: bool
+    # 是否对其他 bot 账号的消息也执行广告检测/关键词删除(广告号常用 bot 发广告绕过)
+    ad_guard_include_bots: bool
     openai_endpoint: Optional[str]
     openai_model: str
     openai_api_key: Optional[str]
@@ -107,6 +109,7 @@ def describe_effective_config(settings: "Settings") -> dict:
             "threshold": settings.ad_guard_threshold,
             "min_length": settings.ad_guard_min_length,
             "ban": settings.ad_guard_ban,
+            "include_bots": settings.ad_guard_include_bots,
             "score_skip_threshold": settings.ad_guard_score_skip_threshold,
             "score_ban_threshold": settings.ad_guard_score_ban_threshold,
             "vote_duration_seconds": settings.ad_vote_duration_seconds,
@@ -239,6 +242,7 @@ def load_settings() -> Settings:
     ollama_timeout_seconds_raw = int(_read_env("OLLAMA_TIMEOUT_SECONDS", "30"))
     ollama_timeout_seconds = max(ollama_timeout_seconds_raw, 30)
     ad_guard_ban = _read_bool(_read_env("AD_GUARD_BAN", "false"))
+    ad_guard_include_bots = _read_bool(_read_env("AD_GUARD_INCLUDE_BOTS", "true"), True)
     # OpenAI 兼容端点;旧名 HUNYUAN_* 仍兼容读取,但优先用 OPENAI_*
     openai_endpoint = (
         _read_env("OPENAI_ENDPOINT", "") or _read_env("HUNYUAN_ENDPOINT", "")
@@ -332,6 +336,7 @@ def load_settings() -> Settings:
         ollama_model=ollama_model,
         ollama_timeout_seconds=ollama_timeout_seconds,
         ad_guard_ban=ad_guard_ban,
+        ad_guard_include_bots=ad_guard_include_bots,
         openai_endpoint=openai_endpoint,
         openai_model=openai_model,
         openai_api_key=openai_api_key,
