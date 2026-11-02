@@ -1235,6 +1235,96 @@ def test_channel_sender_chat_block_gate():
     print("PASS: 禁止频道马甲发言开关(开关/自动转发/身份类型)正确")
 
 
+def test_registered_command_gate():
+    """仅已注册命令豁免,未知斜杠前缀不得绕过广告检测。"""
+    from app.routers.ad_guard import _is_registered_command_text
+
+    assert _is_registered_command_text("/start verify_abc") is True
+    assert _is_registered_command_text("/ID@my_bot") is True
+    assert _is_registered_command_text("/news 推广链接和返利") is False
+    assert _is_registered_command_text("/id_extra 广告") is False
+    assert _is_registered_command_text("普通文本") is False
+    print("PASS: 斜杠命令白名单(未知命令不豁免)正确")
+
+
+def test_short_message_valid_speech_gate():
+    """短消息跳过 LLM 或编辑消息时,均不得累计免检资格。"""
+    from app.routers.ad_guard import _should_count_valid_speech
+
+    assert _should_count_valid_speech(count_valid_speech=True, short_message_skipped=False) is True
+    assert _should_count_valid_speech(count_valid_speech=True, short_message_skipped=True) is False
+    assert _should_count_valid_speech(count_valid_speech=False, short_message_skipped=False) is False
+    print("PASS: 短消息不累计免检资格门控正确")
+
+
+def test_extract_message_ad_text():
+    """提取 text_link、Caption Entities、按钮 URL、投票与清单文本。"""
+    from types import SimpleNamespace as _SN
+
+    from app.routers.ad_guard import _extract_message_ad_text
+
+    def message(**overrides):
+        data = dict(
+            text=None,
+            caption=None,
+            entities=None,
+            caption_entities=None,
+            reply_markup=None,
+            poll=None,
+            checklist=None,
+        )
+        data.update(overrides)
+        return _SN(**data)
+
+    markup = _SN(inline_keyboard=[[
+        _SN(url="https://button.example", login_url=None, web_app=None),
+        _SN(url=None, login_url=_SN(url="https://login.example"), web_app=None),
+        _SN(url=None, login_url=None, web_app=_SN(url="https://app.example")),
+    ]])
+    msg = message(
+        text="点击查看",
+        entities=[_SN(url="https://hidden.example")],
+        reply_markup=markup,
+    )
+    text = _extract_message_ad_text(msg)
+    for expected in (
+        "点击查看",
+        "https://hidden.example",
+        "https://button.example",
+        "https://login.example",
+        "https://app.example",
+    ):
+        assert expected in text
+
+    caption_msg = message(
+        caption="图片说明",
+        caption_entities=[_SN(url="https://caption.example")],
+    )
+    assert _extract_message_ad_text(caption_msg) == "图片说明\nhttps://caption.example"
+
+    poll = _SN(
+        question="投票问题",
+        question_entities=[_SN(url="https://poll.example")],
+        options=[_SN(text="选项一", text_entities=None), _SN(text="选项二", text_entities=None)],
+        explanation="投票解释",
+        explanation_entities=None,
+    )
+    poll_text = _extract_message_ad_text(message(poll=poll))
+    assert poll_text.splitlines() == [
+        "投票问题", "https://poll.example", "选项一", "选项二", "投票解释"
+    ]
+
+    checklist = _SN(
+        title="清单标题",
+        title_entities=None,
+        tasks=[_SN(text="任务一", text_entities=None), _SN(text="任务二", text_entities=None)],
+    )
+    assert _extract_message_ad_text(message(checklist=checklist)).splitlines() == [
+        "清单标题", "任务一", "任务二"
+    ]
+    print("PASS: 隐藏链接/按钮/投票/清单广告文本提取正确")
+
+
 async def test_sync_ban_to_linked_channel():
     """关联频道同步封禁:有频道同步/踢出语义/临时时长/无频道跳过/异常静默。"""
     from types import SimpleNamespace as _SN
@@ -1385,6 +1475,9 @@ async def main():
     await test_low_score_ban_failure_rollback_and_cooldown()
     test_bot_message_ad_scan_gate()
     test_channel_sender_chat_block_gate()
+    test_registered_command_gate()
+    test_short_message_valid_speech_gate()
+    test_extract_message_ad_text()
     await test_sync_ban_to_linked_channel()
     await test_linked_sync_toggle()
     await test_ban_sender_chat_quiet()

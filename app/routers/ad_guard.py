@@ -16,6 +16,7 @@ from aiogram.types import (
     Poll,
 )
 
+from ..bot_commands import _BOT_COMMANDS
 from ..keyword_deletions import get_keyword_deletion_rules, try_keyword_deletion
 from ..keyword_replies import get_keyword_reply_config, try_keyword_reply
 from ..bot_components.ad_guard import (
@@ -51,6 +52,78 @@ _PROVIDER_LABEL = {
 
 def _provider_label(provider: str) -> str:
     return _PROVIDER_LABEL.get(provider, provider or "AI")
+
+
+_REGISTERED_COMMANDS = frozenset(command.command for command in _BOT_COMMANDS)
+
+
+def _is_registered_command_text(text: str) -> bool:
+    """仅机器人已注册命令可豁免；未知斜杠文本仍按广告内容检测。"""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    command_token = stripped.split(maxsplit=1)[0]
+    if not command_token.startswith("/"):
+        return False
+    command_name = command_token[1:].split("@", 1)[0].lower()
+    return command_name in _REGISTERED_COMMANDS
+
+
+def _should_count_valid_speech(
+    *, count_valid_speech: bool, short_message_skipped: bool
+) -> bool:
+    """编辑消息和因过短而跳过 LLM 的消息都不累计免检资格。"""
+    return count_valid_speech and not short_message_skipped
+
+
+def _extract_message_ad_text(message: Message) -> str:
+    """提取供广告检测的文本、隐藏链接及结构化消息内容。"""
+    parts: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value) -> None:
+        if not isinstance(value, str):
+            return
+        cleaned = value.strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            parts.append(cleaned)
+
+    def _add_entity_urls(entities) -> None:
+        for entity in entities or ():
+            _add(getattr(entity, "url", None))
+
+    _add(getattr(message, "text", None))
+    _add(getattr(message, "caption", None))
+    _add_entity_urls(getattr(message, "entities", None))
+    _add_entity_urls(getattr(message, "caption_entities", None))
+
+    markup = getattr(message, "reply_markup", None)
+    for row in getattr(markup, "inline_keyboard", None) or ():
+        for button in row:
+            _add(getattr(button, "url", None))
+            _add(getattr(getattr(button, "login_url", None), "url", None))
+            _add(getattr(getattr(button, "web_app", None), "url", None))
+
+    poll = getattr(message, "poll", None)
+    if poll is not None:
+        _add(getattr(poll, "question", None))
+        _add_entity_urls(getattr(poll, "question_entities", None))
+        for option in getattr(poll, "options", None) or ():
+            _add(getattr(option, "text", None))
+            _add_entity_urls(getattr(option, "text_entities", None))
+        _add(getattr(poll, "explanation", None))
+        _add_entity_urls(getattr(poll, "explanation_entities", None))
+
+    checklist = getattr(message, "checklist", None)
+    if checklist is not None:
+        _add(getattr(checklist, "title", None))
+        _add_entity_urls(getattr(checklist, "title_entities", None))
+        for task in getattr(checklist, "tasks", None) or ():
+            _add(getattr(task, "text", None))
+            _add_entity_urls(getattr(task, "text_entities", None))
+
+    return "\n".join(parts)
 
 
 def _should_skip_bot_message(message: Message, bot_id: int, include_bots: bool) -> bool:
@@ -345,7 +418,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 history_store.get(chat_id).append(current_entry)
             return
 
-        if text.startswith("/"):
+        if _is_registered_command_text(text):
             if current_entry.text:
                 history_store.get(chat_id).append(current_entry)
             return
@@ -407,6 +480,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             )
 
         source = "llm"
+        short_message_skipped = False
         if heuristic_detect_advertisement(text, previous_entries=previous_entries):
             logger.debug(
                 "广告检测命中本地规则 chat_id=%s user_id=%s msg_id=%s",
@@ -427,6 +501,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     chat_id,
                     message.from_user.id,
                 )
+                short_message_skipped = True
                 flagged, confidence = (False, None)
             else:
                 guard_payload = format_context_for_prompt(previous_entries, current_entry)
@@ -540,7 +615,10 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         if not final_flagged:
             if current_entry.text:
                 history_store.get(chat_id).append(current_entry)
-            if count_valid_speech:
+            if _should_count_valid_speech(
+                count_valid_speech=count_valid_speech,
+                short_message_skipped=short_message_skipped,
+            ):
                 new_count, qualified = await store.record_ad_valid_speech(
                     chat_id=chat_id,
                     user_id=user_id,
@@ -551,7 +629,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                     username=message.from_user.username,
                 )
             else:
-                # 编辑消息只检测、不计有效发言,防止反复编辑同一条消息刷免检资格
+                # 编辑消息与过短跳过 LLM 的消息均只放行,不累计免检资格
                 new_count, qualified = valid_count, is_qualified
             await _record_ad_decision_safe(
                 message,
@@ -863,8 +941,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             # 自身豁免(Bot API 本就不回推,双保险);可用开关回到旧行为。
             return
 
-        # 同时支持纯文本和带图/媒体的 caption（广告号常把文案塞进图片说明绕过检测）
-        raw_text = message.text if message.text is not None else message.caption
+        # 正文/Caption 之外,同时提取隐藏链接与按钮 URL,避免广告藏在实体中
+        raw_text = _extract_message_ad_text(message)
 
         history = history_store.get(message.chat.id)
         if is_auto_forward:
@@ -947,6 +1025,35 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 # 非文本频道身份发言(贴纸等)同样封禁该频道,与文本路径一致
                 await _ban_sender_chat_quiet(bot, message.chat.id, sender_chat.id)
             return
+
+        # 投票、清单等非 text/caption 消息也提取内容进入同一广告管线。
+        # 无文字媒体仍返回空串并跳过,不在本次改动中做 OCR。
+        if not resolve_chat(settings, message.chat.id, "ad_guard_enabled"):
+            return
+        if is_auto_forward or message.from_user is None:
+            return
+        if _should_skip_bot_message(message, bot.id, settings.ad_guard_include_bots):
+            return
+        text = _extract_message_ad_text(message).strip()
+        if not text:
+            return
+
+        history = history_store.get(message.chat.id)
+        is_user_forward = any(
+            (
+                getattr(message, "forward_from", None),
+                getattr(message, "forward_from_chat", None),
+                getattr(message, "forward_sender_name", None),
+            )
+        )
+        previous_entries = list(history)
+        current_entry = build_history_entry(message, text, is_user_forward=is_user_forward)
+        ad_outcome = await _evaluate_ad(
+            bot, message, text, previous_entries, current_entry, is_user_forward,
+            count_valid_speech=True,
+        )
+        if metrics is not None and message.chat.type in {"group", "supergroup"}:
+            metrics.record_message(result=ad_outcome or "skipped", chat_id=message.chat.id)
 
     @router.callback_query(lambda call: call.data and call.data.startswith("adreview:"))
     async def handle_ad_review_callback(callback: CallbackQuery, bot: Bot) -> None:
