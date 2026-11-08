@@ -1728,6 +1728,151 @@ async def test_media_poll_and_special_handlers_reach_pipeline():
     print("PASS: 无 Caption 图片/相册/投票真实路由及 AI 关闭时特殊消息策略正确")
 
 
+async def test_sync_unban_to_linked_channel():
+    """手动解封同步到关联频道，遵循开关且频道异常不影响群组解封。"""
+    from types import SimpleNamespace as _SN
+
+    from aiogram.exceptions import TelegramBadRequest
+
+    from app.bot_components import linked
+
+    sync_unban = getattr(linked, "sync_unban_to_linked_channel", None)
+    assert callable(sync_unban), "缺少关联频道同步解封函数"
+
+    class _Bot:
+        def __init__(self, linked_id=-300, fail=False):
+            self.linked_id = linked_id
+            self.fail = fail
+            self.get_chat_calls = []
+            self.unbans = []
+
+        async def get_chat(self, chat_id):
+            self.get_chat_calls.append(chat_id)
+            return _SN(linked_chat_id=self.linked_id)
+
+        async def unban_chat_member(self, chat_id, user_id, only_if_banned=False):
+            if self.fail:
+                raise TelegramBadRequest(method=None, message="not enough rights")
+            self.unbans.append((chat_id, user_id, only_if_banned))
+
+    linked.configure_linked_sync(True)
+    try:
+        bot = _Bot()
+        await sync_unban(bot, -100, 42)
+        assert bot.get_chat_calls == [-100]
+        assert bot.unbans == [(-300, 42, False)]
+
+        bot = _Bot(linked_id=None)
+        await sync_unban(bot, -100, 42)
+        assert not bot.unbans
+
+        bot = _Bot(fail=True)
+        await sync_unban(bot, -100, 42)  # 频道无权限不得外抛
+
+        linked.configure_linked_sync(False)
+        bot = _Bot()
+        await sync_unban(bot, -100, 42)
+        assert not bot.get_chat_calls and not bot.unbans
+    finally:
+        linked.configure_linked_sync(True)
+    print("PASS: 关联频道同步解封(开关/无频道/异常静默)正确")
+
+
+async def test_unban_entrypoints_sync_linked_channel():
+    """群指令与 Admin API 两个手动解封入口都同步解除关联频道封禁。"""
+    from types import SimpleNamespace as _SN
+
+    from app.bot_components import linked
+    from app.routers import admin_cmds
+    from app import web
+
+    assert callable(getattr(linked, "sync_unban_to_linked_channel", None))
+
+    operator = _SN(id=7, full_name="Admin", username="admin")
+    target = _SN(id=42, full_name="Target", username="target")
+
+    class _Bot:
+        def __init__(self):
+            self.unbans = []
+
+        async def get_chat_member(self, chat_id, user_id):
+            if user_id == operator.id:
+                return _SN(status="administrator", user=operator)
+            return _SN(status="member", user=target)
+
+        async def get_chat(self, chat_id):
+            return _SN(linked_chat_id=-300)
+
+        async def unban_chat_member(self, chat_id, user_id, only_if_banned=False):
+            self.unbans.append((chat_id, user_id, only_if_banned))
+
+        async def send_message(self, chat_id, text, **kwargs):
+            return _SN(message_id=999, chat=_SN(id=chat_id))
+
+    class _Store:
+        async def record_ban_event(self, **kwargs):
+            return 1
+
+        async def mark_unbanned(self, *args, **kwargs):
+            return 1
+
+        async def reset_ad_qualification(self, chat_id, user_id):
+            return None
+
+    settings = _SN(allowed_chat_ids=set(), message_ttl_seconds=None)
+    services = _SN(settings=settings, store=_Store(), score_manager=_SN())
+    router = admin_cmds.build_admin_commands_router(services)
+    handlers = {handler.callback.__name__: handler.callback for handler in router.message.handlers}
+    message = _SN(
+        chat=_SN(id=-100, type="group"),
+        from_user=operator,
+        message_id=1,
+        text="/unban",
+        reply_to_message=_SN(from_user=target),
+    )
+    bot = _Bot()
+    await handlers["handle_unban_command"](message, bot)
+    assert bot.unbans == [(-100, 42, False), (-300, 42, False)], bot.unbans
+
+    app = web.create_web_app(_SN(admin_behind_proxy=False), _Store(), bot := _Bot())
+    endpoint = next(
+        route.endpoint
+        for route in app.routes
+        if getattr(route, "path", None) == "/admin/api/unban"
+    )
+    session = {
+        "admin_chat_ids": [-100],
+        "user_id": str(operator.id),
+        "name": operator.full_name,
+    }
+
+    class _Request:
+        async def json(self):
+            return {"chat_id": -100, "user_id": 42}
+
+    async def fake_require_session(request, api=False):
+        return session
+
+    async def fake_admin_chat_ids(bot, chat_ids, user_id):
+        return set(chat_ids)
+
+    original_session = web._require_admin_session
+    original_csrf = web._require_csrf
+    original_admin_ids = web._admin_chat_ids_for_user
+    web._require_admin_session = fake_require_session
+    web._require_csrf = lambda request, current_session: None
+    web._admin_chat_ids_for_user = fake_admin_chat_ids
+    try:
+        response = await endpoint(_Request())
+    finally:
+        web._require_admin_session = original_session
+        web._require_csrf = original_csrf
+        web._admin_chat_ids_for_user = original_admin_ids
+    assert response.status_code == 200
+    assert bot.unbans == [(-100, 42, False), (-300, 42, False)], bot.unbans
+    print("PASS: /unban 与 Admin API 均同步解除群组和关联频道封禁")
+
+
 async def test_sync_ban_to_linked_channel():
     """关联频道同步封禁:有频道同步/踢出语义/临时时长/无频道跳过/异常静默。"""
     from types import SimpleNamespace as _SN
@@ -1886,6 +2031,8 @@ async def main():
     await test_image_download_limits()
     await test_special_message_policies()
     await test_media_poll_and_special_handlers_reach_pipeline()
+    await test_sync_unban_to_linked_channel()
+    await test_unban_entrypoints_sync_linked_channel()
     await test_sync_ban_to_linked_channel()
     await test_linked_sync_toggle()
     await test_ban_sender_chat_quiet()

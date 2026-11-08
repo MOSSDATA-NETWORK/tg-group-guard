@@ -64,7 +64,7 @@ FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("WARN_LIMIT", "warn_limit", "int", "入群验证",
               "警告封禁阈值", "本月累计警告达到该次数后自动封禁", False, min_value=1),
     FieldSpec("SYNC_BAN_TO_LINKED_CHANNEL", "sync_ban_to_linked_channel", "bool", "入群验证",
-              "封禁同步到关联频道", "群内封禁/踢出/临时封禁成功后,同步到群的关联频道(需 bot 在频道有管理员权限,无权限静默跳过)", False),
+              "封禁/解封同步到关联频道", "群内封禁/踢出/临时封禁/手动解封成功后,同步到群的关联频道(需 bot 在频道有管理员权限,无权限静默跳过)", False),
     # ===== 广告守卫 =====
     FieldSpec("AI_ENABLED", "ai_enabled", "bool", "广告守卫",
               "AI 总开关", "关闭后所有依赖 LLM 的检测都不再执行", False),

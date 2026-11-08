@@ -20,6 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .bot_components.ad_guard import ModelProbeError, list_openai_models
 from .bot_components.constants import ADMIN_STATUSES
+from .bot_components.linked import sync_unban_to_linked_channel
 from .bot_components.verification import (
     announce_group_success,
     ban_and_cleanup,
@@ -400,6 +401,9 @@ def create_web_app(settings: Settings, store: VerificationStore, bot) -> FastAPI
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="机器人无相关群权限",
             ) from exc
+
+        # 群组解封成功后同步频道；频道无权限等失败不影响群组结果。
+        await sync_unban_to_linked_channel(bot, chat_id, user_id)
 
         # 到这里 Telegram 已经放人了，后面的记账再失败也不能让接口报错：
         # 否则前端提示"解封失败"，用户会反复点，而人其实早就解开了。

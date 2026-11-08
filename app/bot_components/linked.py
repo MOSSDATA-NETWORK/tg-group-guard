@@ -1,8 +1,8 @@
-"""群组封禁同步到关联频道。
+"""群组封禁与手动解封同步到关联频道。
 
-Telegram 的封禁是 per-chat 的:群里 ban 用户不影响其在关联频道(linked_chat_id)
-的状态。本模块在群组封禁成功后,若群绑定了关联频道且 bot 在频道有权限,
-按相同语义同步处理(永久封禁 / 踢出 / 临时封禁)。
+Telegram 的封禁是 per-chat 的:群里 ban/unban 用户不影响其在关联频道
+(linked_chat_id) 的状态。本模块在群组操作成功后,若群绑定了关联频道且
+bot 在频道有权限,按相同语义同步处理(封禁 / 踢出 / 临时封禁 / 手动解封)。
 
 任何失败(无关联频道、bot 非频道管理员、目标是频道管理员等)都只记日志,
 绝不阻断群内主流程。
@@ -80,4 +80,49 @@ async def sync_ban_to_linked_channel(
         )
 
 
-__all__ = ["configure_linked_sync", "sync_ban_to_linked_channel"]
+async def sync_unban_to_linked_channel(bot: Bot, chat_id: int, user_id: int) -> None:
+    """群组手动解封成功后，同步解除同一用户在关联频道的封禁。
+
+    与封禁同步一致：开关关闭、无关联频道或频道侧失败均不影响群组主流程。
+    """
+    if not _enabled:
+        return
+    try:
+        chat = await bot.get_chat(chat_id)
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        logger.debug("同步频道解封:获取群信息失败 chat_id=%s error=%s", chat_id, exc)
+        return
+    linked_id = getattr(chat, "linked_chat_id", None)
+    if not linked_id:
+        return
+    try:
+        await bot.unban_chat_member(linked_id, user_id, only_if_banned=False)
+        logger.info(
+            "已同步解除关联频道封禁 chat_id=%s linked_chat_id=%s user_id=%s",
+            chat_id,
+            linked_id,
+            user_id,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        logger.debug(
+            "同步关联频道解封未完成(通常因 bot 无频道权限) chat_id=%s linked_chat_id=%s user_id=%s error=%s",
+            chat_id,
+            linked_id,
+            user_id,
+            exc,
+        )
+    except Exception as exc:
+        logger.warning(
+            "同步关联频道解封异常 chat_id=%s linked_chat_id=%s user_id=%s error=%r",
+            chat_id,
+            linked_id,
+            user_id,
+            exc,
+        )
+
+
+__all__ = [
+    "configure_linked_sync",
+    "sync_ban_to_linked_channel",
+    "sync_unban_to_linked_channel",
+]

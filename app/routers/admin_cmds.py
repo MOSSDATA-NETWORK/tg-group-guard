@@ -11,7 +11,10 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from ..bot_components.constants import ADMIN_STATUSES
-from ..bot_components.linked import sync_ban_to_linked_channel
+from ..bot_components.linked import (
+    sync_ban_to_linked_channel,
+    sync_unban_to_linked_channel,
+)
 from ..bot_components.messaging import send_message_with_ttl, schedule_message_auto_delete
 from ..bot_components.permissions import (
     is_authorized_admin,
@@ -605,6 +608,9 @@ def build_admin_commands_router(services: BotServices) -> Router:
                 ttl=settings.message_ttl_seconds,
             )
             return
+
+        # 群组解封成功后同步频道；频道无权限等失败不影响群组结果。
+        await sync_unban_to_linked_channel(bot, message.chat.id, target_user_id)
 
         display_name = escape(target_display or str(target_user_id))
         operator = message.from_user

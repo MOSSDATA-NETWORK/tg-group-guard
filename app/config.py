@@ -53,7 +53,7 @@ class Settings:
     ad_guard_block_sender_chat: bool
     # 频道身份发言除了删除外,是否同时 ban_sender_chat 封禁该频道在本群发言
     ad_guard_ban_sender_chat: bool
-    # 群内封禁/踢出成功后是否同步到关联频道
+    # 群内封禁/踢出/手动解封成功后是否同步到关联频道
     sync_ban_to_linked_channel: bool
     # 图片多模态检测与消息行为风控
     ad_guard_image_enabled: bool
