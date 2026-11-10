@@ -3,6 +3,15 @@
 本文件记录各版本的主要变更，发布 GitHub Release 时请把对应版本的中文说明复制到 Release 正文，
 管理后台「系统设置 → 版本更新」会直接展示 Release 正文作为更新日志。
 
+## v1.0.8
+
+- 变更：移除重复消息拦截与连续短消息刷屏限制，群成员复读或连续发送短消息
+  不再因此被删除，避免影响正常交流与开玩笑。
+- 变更：Admin UI 与 `.env.example` 移除 `AD_GUARD_DUPLICATE_*` 和
+  `AD_GUARD_SHORT_FLOOD_*` 配置；旧配置即使保留也不会再生效。
+- 保留：整体发送频率限制仍可通过 `AD_GUARD_MESSAGE_RATE_LIMIT` 与
+  `AD_GUARD_MESSAGE_RATE_WINDOW_SECONDS` 配置，频率上限设为 `0` 可关闭。
+
 ## v1.0.7
 
 - 新增：图片多模态广告检测，支持 OpenAI 兼容接口与 Ollama，将有/无 Caption

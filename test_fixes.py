@@ -1354,19 +1354,13 @@ def test_extract_message_ad_text():
 
 
 def test_message_behavior_guard():
-    """重复、短消息和频率阈值，以及窗口过期与 0 关闭语义。"""
+    """重复与连续短消息均不拦截；仅保留发送频率、窗口过期与 0 关闭语义。"""
     from app.bot_components.behavior import MessageBehaviorGuard
 
-    def check(guard, text, now, **overrides):
+    def check(guard, now, **overrides):
         kwargs = dict(
             chat_id=-100,
             user_id=42,
-            text=text,
-            duplicate_threshold=0,
-            duplicate_window_seconds=600,
-            short_flood_threshold=0,
-            short_flood_window_seconds=300,
-            short_message_length=20,
             rate_limit=0,
             rate_window_seconds=60,
             now=now,
@@ -1375,36 +1369,24 @@ def test_message_behavior_guard():
         return guard.check(**kwargs)
 
     guard = MessageBehaviorGuard()
-    for index in range(3):
-        assert check(guard, "Hello   World", index, duplicate_threshold=4) is None
-    assert check(guard, " hello world ", 3, duplicate_threshold=4) == "duplicate"
+    for index in range(20):
+        assert check(guard, index) is None, "重复消息不得再触发删除"
 
     guard.clear()
-    for index in range(5):
-        assert check(guard, f"嗨{index}", index, short_flood_threshold=6) is None
-    assert check(guard, "嗨5", 5, short_flood_threshold=6) == "short_flood"
+    for index in range(20):
+        assert check(guard, index) is None, "连续短消息不得再触发删除"
 
     guard.clear()
     for index in range(15):
-        text = f"这是一条用于频率测试的普通长消息-{index}"
-        assert check(guard, text, index, rate_limit=15) is None
-    assert check(guard, "这是第十六条普通长消息", 15, rate_limit=15) == "rate"
+        assert check(guard, index, rate_limit=15) is None
+    assert check(guard, 15, rate_limit=15) == "rate"
 
     guard.clear()
-    assert check(guard, "重复", 0, duplicate_threshold=2, duplicate_window_seconds=10) is None
-    assert check(guard, "重复", 11, duplicate_threshold=2, duplicate_window_seconds=10) is None
-    assert check(guard, "任意", 12) is None
-
-    guard.clear()
-    for index in range(6):
-        assert check(
-            guard,
-            "",
-            index,
-            duplicate_threshold=4,
-            short_flood_threshold=6,
-        ) is None, "无文字媒体不得计入重复/短文本刷屏"
-    print("PASS: 消息行为风控阈值/归一化/窗口过期/关闭语义正确")
+    assert check(guard, 0, rate_limit=2, rate_window_seconds=10) is None
+    assert check(guard, 1, rate_limit=2, rate_window_seconds=10) is None
+    assert check(guard, 2, rate_limit=2, rate_window_seconds=10) == "rate"
+    assert check(guard, 12, rate_limit=2, rate_window_seconds=10) is None
+    print("PASS: 重复/短消息不拦截，发送频率阈值与窗口过期语义正确")
 
 
 async def test_multimodal_provider_payloads():
@@ -1636,10 +1618,6 @@ async def test_media_poll_and_special_handlers_reach_pipeline():
         ad_guard_include_bots=True,
         ad_guard_block_sender_chat=False,
         ad_guard_ban_sender_chat=False,
-        ad_guard_duplicate_threshold=4,
-        ad_guard_duplicate_window_seconds=600,
-        ad_guard_short_flood_threshold=6,
-        ad_guard_short_flood_window_seconds=300,
         ad_guard_message_rate_limit=0,
         ad_guard_message_rate_window_seconds=60,
         ad_guard_min_length=20,

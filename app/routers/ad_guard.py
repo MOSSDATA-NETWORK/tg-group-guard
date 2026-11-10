@@ -66,8 +66,6 @@ _SPECIAL_MESSAGE_LABELS = {
 }
 _BEHAVIOR_NOTICE = {
     "rate": "发送消息过于频繁，请稍后再试。",
-    "duplicate": "请勿在短时间内重复发送相同内容。",
-    "short_flood": "请勿连续发送大量短消息。",
 }
 
 
@@ -571,21 +569,12 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 )
             return
 
-        # 行为风控独立于内容免检：永久合格用户也不能靠刷屏绕过。
+        # 发送频率风控独立于内容免检：永久合格用户也不能靠刷屏绕过。
         # 编辑事件不重复计数；命中只删当前消息，不扣分、不封禁。
         if count_valid_speech:
-            # 无 Caption 图片的占位文本不是用户原文：相册仍参与频率统计，
-            # 但不同图片不能因共用占位文本而被判作重复/短文本刷屏。
-            behavior_text = "" if text == _IMAGE_ONLY_PLACEHOLDER else text
             behavior_result = _BEHAVIOR_GUARD.check(
                 chat_id=chat_id,
                 user_id=user_id,
-                text=behavior_text,
-                duplicate_threshold=settings.ad_guard_duplicate_threshold,
-                duplicate_window_seconds=settings.ad_guard_duplicate_window_seconds,
-                short_flood_threshold=settings.ad_guard_short_flood_threshold,
-                short_flood_window_seconds=settings.ad_guard_short_flood_window_seconds,
-                short_message_length=settings.ad_guard_min_length or 20,
                 rate_limit=settings.ad_guard_message_rate_limit,
                 rate_window_seconds=settings.ad_guard_message_rate_window_seconds,
             )

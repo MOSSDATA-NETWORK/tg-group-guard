@@ -57,10 +57,6 @@ class Settings:
     sync_ban_to_linked_channel: bool
     # 图片多模态检测与消息行为风控
     ad_guard_image_enabled: bool
-    ad_guard_duplicate_threshold: int
-    ad_guard_duplicate_window_seconds: int
-    ad_guard_short_flood_threshold: int
-    ad_guard_short_flood_window_seconds: int
     ad_guard_message_rate_limit: int
     ad_guard_message_rate_window_seconds: int
     # 特殊消息类型策略: off / new_member / all
@@ -269,14 +265,6 @@ def load_settings() -> Settings:
         _read_env("SYNC_BAN_TO_LINKED_CHANNEL", "true"), True
     )
     ad_guard_image_enabled = _read_bool(_read_env("AD_GUARD_IMAGE_ENABLED", "true"), True)
-    ad_guard_duplicate_threshold = max(int(_read_env("AD_GUARD_DUPLICATE_THRESHOLD", "4")), 0)
-    ad_guard_duplicate_window_seconds = max(
-        int(_read_env("AD_GUARD_DUPLICATE_WINDOW_SECONDS", "600")), 1
-    )
-    ad_guard_short_flood_threshold = max(int(_read_env("AD_GUARD_SHORT_FLOOD_THRESHOLD", "6")), 0)
-    ad_guard_short_flood_window_seconds = max(
-        int(_read_env("AD_GUARD_SHORT_FLOOD_WINDOW_SECONDS", "300")), 1
-    )
     ad_guard_message_rate_limit = max(int(_read_env("AD_GUARD_MESSAGE_RATE_LIMIT", "15")), 0)
     ad_guard_message_rate_window_seconds = max(
         int(_read_env("AD_GUARD_MESSAGE_RATE_WINDOW_SECONDS", "60")), 1
@@ -389,10 +377,6 @@ def load_settings() -> Settings:
         ad_guard_ban_sender_chat=ad_guard_ban_sender_chat,
         sync_ban_to_linked_channel=sync_ban_to_linked_channel,
         ad_guard_image_enabled=ad_guard_image_enabled,
-        ad_guard_duplicate_threshold=ad_guard_duplicate_threshold,
-        ad_guard_duplicate_window_seconds=ad_guard_duplicate_window_seconds,
-        ad_guard_short_flood_threshold=ad_guard_short_flood_threshold,
-        ad_guard_short_flood_window_seconds=ad_guard_short_flood_window_seconds,
         ad_guard_message_rate_limit=ad_guard_message_rate_limit,
         ad_guard_message_rate_window_seconds=ad_guard_message_rate_window_seconds,
         contact_message_policy=contact_message_policy,
