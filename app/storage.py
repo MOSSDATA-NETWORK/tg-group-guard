@@ -27,6 +27,7 @@ AD_SOURCE_LABELS = {
 AD_FINAL_ACTION_LABELS = {
     "none": "已通过",
     "deleted": "已删除",
+    "review": "待管理员复核",
     "banned": "已封禁",
     "restored": "已恢复",
 }
@@ -34,6 +35,7 @@ AD_FINAL_ACTION_LABELS = {
 BAN_REASON_LABELS = {
     "ad_auto": "广告自动封禁",
     "ad_review": "广告复核封禁",
+    "ad_review_restore": "广告误判恢复",
     "ad_vote_force": "广告强制封禁",
     "low_score": "低分用户清理",
     "admin_cmd": "管理员命令",

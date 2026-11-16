@@ -26,6 +26,8 @@ class AdReviewContext:
     # 修复前只存文本,带图广告误判恢复后原图永久丢失
     media_type: Optional[str] = None
     media_file_id: Optional[str] = None
+    # 自动封禁后的误判恢复需要同时解封；评分已在封禁时重置，不应重复退还。
+    was_banned: bool = False
     locked_by: Optional[int] = None
     resolved: bool = False
 

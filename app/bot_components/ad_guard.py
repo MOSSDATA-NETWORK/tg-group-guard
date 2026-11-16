@@ -16,7 +16,6 @@ from ..ad_guard_rules import (
 )
 from ..chat_settings import resolve_chat
 
-from .constants import MESSAGE_HISTORY_LIMIT
 from .history import HistoryEntry
 
 if TYPE_CHECKING:
@@ -34,26 +33,12 @@ def heuristic_detect_advertisement(
     *,
     previous_entries: Sequence[HistoryEntry],
 ) -> bool:
-    if _heuristic_match_text(text):
-        return True
-    if not previous_entries:
-        return False
+    """仅匹配当前发送者本人的正文，历史消息只供 LLM 理解语境。
 
-    context_segments = [entry.text for entry in previous_entries if entry.text]
-    if not context_segments:
-        return False
-
-    context_tail = context_segments[-(MESSAGE_HISTORY_LIMIT - 1) :]
-    combined_context = "\n".join([*context_tail, text])
-    if _heuristic_match_text(combined_context):
-        return True
-
-    max_window = min(4, len(context_tail))
-    for window_size in range(1, max_window + 1):
-        snippet = "\n".join([*context_tail[-window_size:], text])
-        if _heuristic_match_text(snippet):
-            return True
-    return False
+    不再把历史广告与当前正常发言拼接命中，否则其他用户之前发过的广告
+    会让当前用户被本地规则误判。保留 previous_entries 参数以兼容既有调用。
+    """
+    return _heuristic_match_text(text)
 
 
 def _heuristic_match_text(text: str) -> bool:

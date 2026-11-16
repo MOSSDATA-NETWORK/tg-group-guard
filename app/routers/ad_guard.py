@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass
 from html import escape
 from typing import Optional, Tuple
 
@@ -34,7 +35,10 @@ from ..bot_components.messaging import (
     truncate_for_logging,
 )
 from ..bot_components.moderation import handle_low_score_violation
-from ..bot_components.linked import sync_ban_to_linked_channel
+from ..bot_components.linked import (
+    sync_ban_to_linked_channel,
+    sync_unban_to_linked_channel,
+)
 from ..bot_components.permissions import is_authorized_admin
 from ..chat_settings import resolve_chat
 from ..services.ad_pipeline import AdPipeline
@@ -88,8 +92,30 @@ def _should_count_valid_speech(
     return count_valid_speech and not short_message_skipped
 
 
-def _extract_message_ad_text(message: Message) -> str:
-    """提取正文、隐藏链接，以及回复/引用中实际可获取的结构化内容。"""
+@dataclass(slots=True)
+class AdMessageParts:
+    """当前消息按作者与来源拆分，避免引用者被当成广告作者。"""
+
+    author_text: str = ""
+    quote_text: str = ""
+    reply_text: str = ""
+    external_reply_text: str = ""
+
+    @property
+    def combined_text(self) -> str:
+        return "\n".join(
+            part
+            for part in (
+                self.author_text,
+                self.quote_text,
+                self.reply_text,
+                self.external_reply_text,
+            )
+            if part
+        )
+
+
+def _extract_structured_text(source) -> str:
     parts: list[str] = []
     seen: set[str] = set()
 
@@ -105,55 +131,54 @@ def _extract_message_ad_text(message: Message) -> str:
         for entity in entities or ():
             _add(getattr(entity, "url", None))
 
-    def _add_structured_content(source) -> None:
-        _add(getattr(source, "text", None))
-        _add(getattr(source, "caption", None))
-        _add_entity_urls(getattr(source, "entities", None))
-        _add_entity_urls(getattr(source, "caption_entities", None))
+    _add(getattr(source, "text", None))
+    _add(getattr(source, "caption", None))
+    _add_entity_urls(getattr(source, "entities", None))
+    _add_entity_urls(getattr(source, "caption_entities", None))
 
-        markup = getattr(source, "reply_markup", None)
-        for row in getattr(markup, "inline_keyboard", None) or ():
-            for button in row:
-                _add(getattr(button, "url", None))
-                _add(getattr(getattr(button, "login_url", None), "url", None))
-                _add(getattr(getattr(button, "web_app", None), "url", None))
+    markup = getattr(source, "reply_markup", None)
+    for row in getattr(markup, "inline_keyboard", None) or ():
+        for button in row:
+            _add(getattr(button, "url", None))
+            _add(getattr(getattr(button, "login_url", None), "url", None))
+            _add(getattr(getattr(button, "web_app", None), "url", None))
 
-        poll = getattr(source, "poll", None)
-        if poll is not None:
-            _add(getattr(poll, "question", None))
-            _add_entity_urls(getattr(poll, "question_entities", None))
-            for option in getattr(poll, "options", None) or ():
-                _add(getattr(option, "text", None))
-                _add_entity_urls(getattr(option, "text_entities", None))
-            _add(getattr(poll, "explanation", None))
-            _add_entity_urls(getattr(poll, "explanation_entities", None))
+    poll = getattr(source, "poll", None)
+    if poll is not None:
+        _add(getattr(poll, "question", None))
+        _add_entity_urls(getattr(poll, "question_entities", None))
+        for option in getattr(poll, "options", None) or ():
+            _add(getattr(option, "text", None))
+            _add_entity_urls(getattr(option, "text_entities", None))
+        _add(getattr(poll, "explanation", None))
+        _add_entity_urls(getattr(poll, "explanation_entities", None))
 
-        checklist = getattr(source, "checklist", None)
-        if checklist is not None:
-            _add(getattr(checklist, "title", None))
-            _add_entity_urls(getattr(checklist, "title_entities", None))
-            for task in getattr(checklist, "tasks", None) or ():
-                _add(getattr(task, "text", None))
-                _add_entity_urls(getattr(task, "text_entities", None))
-
-    _add_structured_content(message)
-
-    quote = getattr(message, "quote", None)
-    if quote is not None:
-        _add(getattr(quote, "text", None))
-        _add_entity_urls(getattr(quote, "entities", None))
-
-    reply_to_message = getattr(message, "reply_to_message", None)
-    if reply_to_message is not None:
-        _add_structured_content(reply_to_message)
-
-    # ExternalReplyInfo 不提供外部原帖的完整正文；仅提取 Bot API 实际
-    # 返回的投票、清单等结构化字段，不能假定可以读取外部消息文本。
-    external_reply = getattr(message, "external_reply", None)
-    if external_reply is not None:
-        _add_structured_content(external_reply)
+    checklist = getattr(source, "checklist", None)
+    if checklist is not None:
+        _add(getattr(checklist, "title", None))
+        _add_entity_urls(getattr(checklist, "title_entities", None))
+        for task in getattr(checklist, "tasks", None) or ():
+            _add(getattr(task, "text", None))
+            _add_entity_urls(getattr(task, "text_entities", None))
 
     return "\n".join(parts)
+
+
+def _extract_message_ad_parts(message: Message) -> AdMessageParts:
+    """分别提取本人正文、Quote、回复与外部回复的实际结构化内容。"""
+    return AdMessageParts(
+        author_text=_extract_structured_text(message),
+        quote_text=_extract_structured_text(getattr(message, "quote", None)),
+        reply_text=_extract_structured_text(getattr(message, "reply_to_message", None)),
+        # ExternalReplyInfo 不提供外部原帖的完整正文；只提取 Bot API 实际
+        # 返回的投票、清单等结构化字段，不能假定可以读取外部消息文本。
+        external_reply_text=_extract_structured_text(getattr(message, "external_reply", None)),
+    )
+
+
+def _extract_message_ad_text(message: Message) -> str:
+    """兼容既有调用：返回所有角色的原始拼接文本，不用于作者归因。"""
+    return _extract_message_ad_parts(message).combined_text
 
 
 def _should_skip_bot_message(message: Message, bot_id: int, include_bots: bool) -> bool:
@@ -485,9 +510,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
 
         # 投票结果判定：
         # - 管理员强制封禁：直接维持
-        # - 无人参与（0:0）：维持模型原判，避免深夜/小群被 0 票漂白
-        # - "不是广告"票必须严格多于"广告"票才放行；
-        #   平票同样维持原判，防止广告号用小号对投自救
+        # - "不是广告"票严格多于"广告"票才直接放行
+        # - 0:0 与平票由调用方转入无扣分、无封禁的人工复核，不让模型原判自动获胜
         if forced_action:
             final_flagged = True
         elif normal_votes > adv_votes:
@@ -543,7 +567,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 history_store.get(chat_id).append(current_entry)
             return
 
-        if _is_registered_command_text(text):
+        if _is_registered_command_text(current_entry.text):
             if current_entry.text:
                 history_store.get(chat_id).append(current_entry)
             return
@@ -640,7 +664,9 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
 
         source = "llm"
         short_message_skipped = False
-        if heuristic_detect_advertisement(text, previous_entries=previous_entries):
+        if heuristic_detect_advertisement(
+            current_entry.text, previous_entries=previous_entries
+        ):
             logger.debug(
                 "广告检测命中本地规则 chat_id=%s user_id=%s msg_id=%s",
                 chat_id,
@@ -648,7 +674,8 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 message.message_id,
             )
             source = "rule"
-            flagged, confidence = (True, 1.0)
+            # 关键词/正则只代表疑似，不伪造 1.0 置信度，也不跳过投票。
+            flagged, confidence = (True, None)
         else:
             # 图片不受短文本跳过限制，确保短 Caption + 图片也会送多模态检测。
             should_check_image = bool(
@@ -658,11 +685,11 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             if (
                 not should_check_image
                 and min_length > 0
-                and len(text.strip()) < min_length
+                and len(current_entry.text.strip()) < min_length
             ):
                 logger.debug(
                     "消息长度 %s 低于 AD_GUARD_MIN_LENGTH=%s，跳过 LLM 检测 chat_id=%s user_id=%s",
-                    len(text.strip()),
+                    len(current_entry.text.strip()),
                     min_length,
                     chat_id,
                     message.from_user.id,
@@ -711,19 +738,17 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         vote_adv_count = 0
         vote_normal_count = 0
         force_ban_triggered = False
-        # 快封路径已提前删除消息(封禁失败回退时),后续不再重复删除
+        review_only = False
+        # 高置信路径会提前删除消息，但不再由单次模型输出直接永久封禁。
         message_pre_deleted = False
-        # 快封路径封禁失败标记:普通封禁路径据此跳过对同一用户的二次封禁调用
-        fast_ban_failed = False
 
-        # 高把握度跳过投票：规则命中（confidence=1.0）或 LLM confidence ≥ 0.95 直接封禁
-        FAST_BAN_CONFIDENCE = 0.95
+        # 仅 LLM 高置信可跳过群投票；之后仍统一走评分、开关和误伤复核流程。
+        HIGH_CONFIDENCE_REVIEW_THRESHOLD = 0.95
         skip_vote_high_confidence = (
             flagged
-            and (
-                source == "rule"
-                or (confidence is not None and confidence >= FAST_BAN_CONFIDENCE)
-            )
+            and source == "llm"
+            and confidence is not None
+            and confidence >= HIGH_CONFIDENCE_REVIEW_THRESHOLD
         )
 
         if flagged and not skip_vote_high_confidence:
@@ -741,12 +766,19 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 original_message_id=message.message_id,
                 duration=settings.ad_vote_duration_seconds,
             )
+            # 0:0、平票或投票创建失败均没有明确结论：仅删除待复核。
+            review_only = (
+                final_flagged
+                and not force_ban_triggered
+                and (
+                    not vote_used
+                    or vote_adv_count == vote_normal_count
+                )
+            )
         elif skip_vote_high_confidence:
-            # 不走投票，直接进入封禁分支：复用 force_ban_triggered 路径删消息+封禁
             final_flagged = True
-            force_ban_triggered = True
             logger.info(
-                "高把握度广告判定，跳过投票直接封禁 chat_id=%s msg_id=%s source=%s confidence=%s",
+                "高置信疑似广告跳过投票，转入统一处置与复核 chat_id=%s msg_id=%s source=%s confidence=%s",
                 chat_id,
                 message.message_id,
                 source,
@@ -757,34 +789,11 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 message_pre_deleted = True
             except TelegramBadRequest as exc:
                 logger.warning(
-                    "高把握度广告消息删除失败 chat_id=%s msg_id=%s error=%s",
+                    "高置信疑似广告消息删除失败 chat_id=%s msg_id=%s error=%s",
                     chat_id,
                     message.message_id,
                     exc,
                 )
-            try:
-                await bot.ban_chat_member(chat_id, message.from_user.id)
-                await sync_ban_to_linked_channel(bot, chat_id, message.from_user.id)
-                await _record_ban_event_safe(
-                    chat_id=chat_id,
-                    user_id=message.from_user.id,
-                    display_name=message.from_user.full_name
-                    or message.from_user.username
-                    or str(message.from_user.id),
-                    operator_id=None,
-                    operator_name="system",
-                    reason="ad_auto_high_conf",
-                )
-            except TelegramBadRequest as exc:
-                logger.warning(
-                    "高把握度广告封禁失败 chat_id=%s user_id=%s error=%s",
-                    chat_id,
-                    message.from_user.id,
-                    exc,
-                )
-                # 封禁失败时回退到“走原投票+复核流程”，避免噤声
-                force_ban_triggered = False
-                fast_ban_failed = True
 
         if not final_flagged:
             if current_entry.text:
@@ -825,13 +834,16 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             )
             return "ad_passed"
 
-        score_after_penalty = await score_manager.adjust_score(chat_id, user_id, -1)
-        logger.debug(
-            "广告判定扣分 chat_id=%s user_id=%s score=%s",
-            chat_id,
-            user_id,
-            score_after_penalty,
-        )
+        if review_only:
+            score_after_penalty = current_score
+        else:
+            score_after_penalty = await score_manager.adjust_score(chat_id, user_id, -1)
+            logger.debug(
+                "广告判定扣分 chat_id=%s user_id=%s score=%s",
+                chat_id,
+                user_id,
+                score_after_penalty,
+            )
         score_display = score_after_penalty
 
         if force_ban_triggered:
@@ -841,8 +853,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 message.message_id,
             )
         elif message_pre_deleted:
-            # 快封路径已删除消息(封禁失败回退),跳过重复删除,
-            # 保证决策日志、群内通知与复核按钮照常执行
+            # 高置信路径已提前删除，后续仍照常记录、评分并提供复核。
             pass
         else:
             await asyncio.sleep(1)
@@ -862,17 +873,16 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
 
         action_suffix = ""
         ban_success = force_ban_triggered
-        if ban_success:
+        if review_only:
+            action_suffix = "（投票未形成明确结论，待管理员复核，未扣分）"
+        elif ban_success:
             action_suffix = "（管理员已强制封禁）"
-        elif fast_ban_failed:
-            # 快封路径刚对同一用户尝试过封禁且失败,不再重复调用 ban,公告如实
-            action_suffix = "（封禁失败，仅删除消息）"
         elif resolve_chat(settings, chat_id, "ad_guard_ban"):
             if score_after_penalty <= settings.ad_guard_score_ban_threshold:
                 try:
                     await bot.ban_chat_member(chat_id, message.from_user.id)
                     await sync_ban_to_linked_channel(bot, chat_id, message.from_user.id)
-                    action_suffix = "（已封禁该用户）"
+                    action_suffix = "（已达到评分封禁阈值，已封禁该用户）"
                     ban_success = True
                     await _record_ban_event_safe(
                         chat_id=chat_id,
@@ -919,7 +929,9 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             vote_used=vote_used,
             vote_adv=vote_adv_count,
             vote_normal=vote_normal_count,
-            final_action="banned" if ban_success else "deleted",
+            final_action=(
+                "review" if review_only else "banned" if ban_success else "deleted"
+            ),
         )
 
         display_name = offender_display_html
@@ -929,29 +941,29 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         )
         if confidence is not None:
             notice += f"（模型判为广告，把握度 {confidence:.2f}，基于{_provider_label(settings.ad_guard_provider)}）"
-        notice += f"（已扣1分，当前评分：{score_display}）"
+        if not review_only:
+            notice += f"（已扣1分，当前评分：{score_display}）"
         if vote_used and not force_ban_triggered:
             notice += f"（投票结果：广告 {vote_adv_count} 票 vs 非广告 {vote_normal_count} 票）"
         notice += action_suffix
 
-        review_id: Optional[str] = None
-        review_keyboard = None
+        # 包括已封禁在内，所有自动处置都保留误伤恢复入口。
+        review_id = uuid.uuid4().hex
+        review_buttons = []
         if not ban_success:
-            review_id = uuid.uuid4().hex
-            review_keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="立即封禁 🚫",
-                            callback_data=f"adreview:ban:{review_id}",
-                        ),
-                        InlineKeyboardButton(
-                            text="这不是广告‼️",
-                            callback_data=f"adreview:restore:{review_id}",
-                        ),
-                    ]
-                ]
+            review_buttons.append(
+                InlineKeyboardButton(
+                    text="立即封禁 🚫",
+                    callback_data=f"adreview:ban:{review_id}",
+                )
             )
+        review_buttons.append(
+            InlineKeyboardButton(
+                text="这不是广告‼️",
+                callback_data=f"adreview:restore:{review_id}",
+            )
+        )
+        review_keyboard = InlineKeyboardMarkup(inline_keyboard=[review_buttons])
 
         notice_message = await send_message_with_ttl(
             bot,
@@ -987,12 +999,13 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 or str(message.from_user.id),
                 original_html=original_html,
                 history_entry=current_entry,
-                score_penalty=1,
+                score_penalty=0 if review_only or ban_success else 1,
                 notice_chat_id=notice_message.chat.id,
                 notice_message_id=notice_message.message_id,
                 confidence=confidence,
                 media_type=media_type,
                 media_file_id=media_file_id,
+                was_banned=ban_success,
             )
             await ad_review_store.put(review_id, context)
             ttl_seconds = resolve_chat(settings, chat_id, "message_ttl_seconds") or 0
@@ -1119,8 +1132,9 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             # 自身豁免(Bot API 本就不回推,双保险);可用开关回到旧行为。
             return
 
-        # 正文/Caption 之外,同时提取隐藏链接与按钮 URL,避免广告藏在实体中
-        raw_text = _extract_message_ad_text(message)
+        # 正文、隐藏链接和按钮 URL 仍完整提取，但 Quote/回复必须独立标注来源。
+        ad_parts = _extract_message_ad_parts(message)
+        raw_text = ad_parts.combined_text
 
         history = history_store.get(message.chat.id)
         if is_auto_forward:
@@ -1129,7 +1143,7 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
                 message.chat.id,
                 message.message_id,
             )
-            text_for_history = (raw_text or "").strip()
+            text_for_history = ad_parts.author_text.strip()
             if text_for_history:
                 history.append(
                     build_history_entry(message, text_for_history, is_user_forward=True)
@@ -1137,9 +1151,6 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             _record_outcome("skipped")
             return
 
-        if not raw_text:
-            _record_outcome("keyword_replied" if kw_replied else "skipped")
-            return
         text = raw_text.strip()
         if not text:
             _record_outcome("keyword_replied" if kw_replied else "skipped")
@@ -1147,7 +1158,14 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
 
         is_user_forward = _is_user_forward_message(message)
         previous_entries = list(history)
-        current_entry = build_history_entry(message, text, is_user_forward=is_user_forward)
+        current_entry = build_history_entry(
+            message,
+            ad_parts.author_text,
+            is_user_forward=is_user_forward,
+            quote_text=ad_parts.quote_text,
+            reply_text=ad_parts.reply_text,
+            external_reply_text=ad_parts.external_reply_text,
+        )
 
         ad_outcome = await _evaluate_ad(
             bot, message, text, previous_entries, current_entry, is_user_forward,
@@ -1210,9 +1228,11 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             return
         if _should_skip_bot_message(message, bot.id, settings.ad_guard_include_bots):
             return
-        text = _extract_message_ad_text(message).strip()
+        ad_parts = _extract_message_ad_parts(message)
+        text = ad_parts.combined_text.strip()
         if not text:
             if settings.ad_guard_image_enabled and getattr(message, "photo", None):
+                ad_parts.author_text = _IMAGE_ONLY_PLACEHOLDER
                 text = _IMAGE_ONLY_PLACEHOLDER
             else:
                 return
@@ -1220,7 +1240,14 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
         history = history_store.get(message.chat.id)
         is_user_forward = _is_user_forward_message(message)
         previous_entries = list(history)
-        current_entry = build_history_entry(message, text, is_user_forward=is_user_forward)
+        current_entry = build_history_entry(
+            message,
+            ad_parts.author_text,
+            is_user_forward=is_user_forward,
+            quote_text=ad_parts.quote_text,
+            reply_text=ad_parts.reply_text,
+            external_reply_text=ad_parts.external_reply_text,
+        )
         ad_outcome = await _evaluate_ad(
             bot, message, text, previous_entries, current_entry, is_user_forward,
             count_valid_speech=True,
@@ -1374,6 +1401,38 @@ def build_ad_guard_router(services: BotServices, pipeline: AdPipeline) -> Router
             return
 
         if action == "restore":
+            if case.was_banned:
+                try:
+                    await bot.unban_chat_member(case.chat_id, case.offender_id)
+                    await sync_unban_to_linked_channel(
+                        bot, case.chat_id, case.offender_id
+                    )
+                except (TelegramBadRequest, TelegramForbiddenError) as exc:
+                    logger.warning(
+                        "误判恢复时解封失败 chat_id=%s user_id=%s error=%s",
+                        case.chat_id,
+                        case.offender_id,
+                        exc,
+                    )
+                    async with lock:
+                        stored = cases.get(review_id)
+                        if stored is not None:
+                            stored.locked_by = None
+                    await callback.answer("解封失败，请检查机器人权限后重试", show_alert=True)
+                    return
+                await _record_ban_event_safe(
+                    chat_id=case.chat_id,
+                    user_id=case.offender_id,
+                    display_name=case.offender_name,
+                    operator_id=callback.from_user.id,
+                    operator_name=callback.from_user.full_name
+                    or callback.from_user.username
+                    or str(callback.from_user.id),
+                    reason="ad_review_restore",
+                    action="unban",
+                    currently_banned=False,
+                )
+
             try:
                 await store.mark_ad_qualified(
                     chat_id=case.chat_id,
